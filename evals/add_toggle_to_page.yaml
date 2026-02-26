@@ -1,0 +1,5 @@
+# add toggle to a page with id
+task: Add a new toggle to my Notion page with the title "Add_toggle_test" and content "This is a test toggle". The page id is "24ecb17dcc4480beb3a6e6f0e4751989".
+properties:
+  title: "Add_toggle_test"
+  content: "This is a test toggle"

@@ -1,0 +1,6 @@
+# retrieve last 3 tasks from Tasks database and sort by importanc eand then urgency
+task: Retrieve the last 3 tasks from my Notion Tasks database and sort them by importance and then urgency.
+properties:
+  database: "Tasks"
+  sort_by: ["importance", "urgency"]
+  limit: 3

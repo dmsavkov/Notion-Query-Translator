@@ -1,0 +1,6 @@
+task: Add a new task into my Notion Tasks database with the title "Add_task_test", date today, importance of 4 and projects such as "Agents & LLMs Specialization". 
+properties:
+  title: "Add_task_test"
+  date: "today"
+  importance: 4
+  projects: ["Agents & LLMs Specialization"]
