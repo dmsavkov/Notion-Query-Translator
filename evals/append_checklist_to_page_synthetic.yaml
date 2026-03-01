@@ -1,5 +1,5 @@
 # add checklist items to a page
-task: Add a checklist to the inbox page containing the items: "Read documentation", "Draft code", and "Test API".
+task: Add a checklist to the inbox page containing the items "Read documentation", "Draft code", and "Test API".
 properties:
   checklist_items: ["Read documentation", "Draft code", "Test API"]
 
@@ -45,6 +45,6 @@ solution: |
       
       response = requests.patch(url, headers=HEADERS, json=payload)
       return response.json()
-  
+
   # Example usage:
   # append_checklist_to_page(os.getenv("NOTION_INBOX_PAGE_ID"), ["Read documentation", "Draft code", "Test API"])
