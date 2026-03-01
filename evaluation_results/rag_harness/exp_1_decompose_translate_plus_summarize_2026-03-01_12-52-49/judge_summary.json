@@ -1,0 +1,8 @@
+{
+  "n_tasks": 6,
+  "avg_query_relevance": 0.833,
+  "avg_context_adherence": 0.667,
+  "avg_accuracy": 0.667,
+  "avg_total_score": 2.167,
+  "max_total_score": 3
+}
