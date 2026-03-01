@@ -8,11 +8,11 @@ properties:
 solution: |
   def update_task_status(page_id, status_value, is_reviewed):
       import requests
+      import os
+      from dotenv import load_dotenv
       
-      NOTION_TOKEN = "your_integration_token"
-      HEADERS = {
-          "Authorization": f"Bearer {NOTION_TOKEN}",
-          "Content-Type": "application/json",
+      load_dotenv()
+      NOTION_TOKEN = os.getenv("NOTION_TOKEN")
           "Notion-Version": "2022-06-28"
       }
       

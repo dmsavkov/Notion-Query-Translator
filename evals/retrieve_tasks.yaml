@@ -7,8 +7,11 @@ properties:
 solution: |
   def retrieve_sorted_tasks(database_id):
       import requests
+      import os
+      from dotenv import load_dotenv
       
-      NOTION_TOKEN = "your_integration_token"
+      load_dotenv()
+      NOTION_TOKEN = os.getenv("NOTION_TOKEN")
       HEADERS = {
           "Authorization": f"Bearer {NOTION_TOKEN}",
           "Content-Type": "application/json",
@@ -36,4 +39,4 @@ solution: |
       return response.json()
 
   # Example usage:
-  # retrieve_sorted_tasks("your_tasks_database_id")
+  # retrieve_sorted_tasks(os.getenv("NOTION_TASKS_DATABASE_ID"))

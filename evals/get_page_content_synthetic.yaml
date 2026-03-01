@@ -6,8 +6,11 @@ properties:
 solution: |
   def get_page_content(page_id):
       import requests
+      import os
+      from dotenv import load_dotenv
       
-      NOTION_TOKEN = "your_integration_token"
+      load_dotenv()
+      NOTION_TOKEN = os.getenv("NOTION_TOKEN")
       HEADERS = {
           "Authorization": f"Bearer {NOTION_TOKEN}",
           "Content-Type": "application/json",
@@ -30,3 +33,6 @@ solution: |
           return blocks
       else:
           return response.json()
+
+  # Example usage:
+  # get_page_content(os.getenv("NOTION_INBOX_PAGE_ID"))

@@ -8,9 +8,12 @@ properties:
 solution: |
   def add_new_task(database_id, title, importance, projects):
       import requests
+      import os
       from datetime import datetime
+      from dotenv import load_dotenv
       
-      NOTION_TOKEN = "your_integration_token"
+      load_dotenv()
+      NOTION_TOKEN = os.getenv("NOTION_TOKEN")
       HEADERS = {
           "Authorization": f"Bearer {NOTION_TOKEN}",
           "Content-Type": "application/json",
@@ -57,4 +60,4 @@ solution: |
       return response.json()
 
   # Example usage:
-  # add_new_task("your_tasks_database_id", "Add_task_test", 4, ["Agents & LLMs Specialization"])
+  # add_new_task(os.getenv("NOTION_TASKS_DATABASE_ID"), "Add_task_test", 4, ["Agents & LLMs Specialization"])

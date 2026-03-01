@@ -6,8 +6,11 @@ properties:
 solution: |
   def add_toggle_to_page(page_id, title, content):
       import requests
+      import os
+      from dotenv import load_dotenv
       
-      NOTION_TOKEN = "your_integration_token"
+      load_dotenv()
+      NOTION_TOKEN = os.getenv("NOTION_TOKEN")
       HEADERS = {
           "Authorization": f"Bearer {NOTION_TOKEN}",
           "Content-Type": "application/json",
@@ -56,4 +59,4 @@ solution: |
       return response.json()
 
   # Example usage:
-  # add_toggle_to_page("24ecb17dcc4480beb3a6e6f0e4751989", "Add_toggle_test", "This is a test toggle")
+  # add_toggle_to_page(os.getenv("NOTION_INBOX_PAGE_ID"), "Add_toggle_test", "This is a test toggle")

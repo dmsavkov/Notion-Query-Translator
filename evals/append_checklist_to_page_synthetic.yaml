@@ -6,8 +6,11 @@ properties:
 solution: |
   def append_checklist_to_page(page_id, checklist_items):
       import requests
+      import os
+      from dotenv import load_dotenv
       
-      NOTION_TOKEN = "your_integration_token"
+      load_dotenv()
+      NOTION_TOKEN = os.getenv("NOTION_TOKEN")
       HEADERS = {
           "Authorization": f"Bearer {NOTION_TOKEN}",
           "Content-Type": "application/json",
@@ -42,4 +45,6 @@ solution: |
       
       response = requests.patch(url, headers=HEADERS, json=payload)
       return response.json()
-      
+  
+  # Example usage:
+  # append_checklist_to_page(os.getenv("NOTION_INBOX_PAGE_ID"), ["Read documentation", "Draft code", "Test API"])
