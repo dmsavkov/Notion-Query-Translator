@@ -3,3 +3,57 @@ task: Add a new toggle to my Notion page with the title "Add_toggle_test" and co
 properties:
   title: "Add_toggle_test"
   content: "This is a test toggle"
+solution: |
+  def add_toggle_to_page(page_id, title, content):
+      import requests
+      
+      NOTION_TOKEN = "your_integration_token"
+      HEADERS = {
+          "Authorization": f"Bearer {NOTION_TOKEN}",
+          "Content-Type": "application/json",
+          "Notion-Version": "2022-06-28"
+      }
+      
+      url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+      
+      # Schema for appending a Toggle block with nested children
+      payload = {
+          "children":[
+              {
+                  "object": "block",
+                  "type": "toggle",
+                  "toggle": {
+                      "rich_text":[
+                          {
+                              "type": "text",
+                              "text": {
+                                  "content": title
+                              }
+                          }
+                      ],
+                      "children":[
+                          {
+                              "object": "block",
+                              "type": "paragraph",
+                              "paragraph": {
+                                  "rich_text":[
+                                      {
+                                          "type": "text",
+                                          "text": {
+                                              "content": content
+                                          }
+                                      }
+                                  ]
+                              }
+                          }
+                      ]
+                  }
+              }
+          ]
+      }
+      
+      response = requests.patch(url, headers=HEADERS, json=payload)
+      return response.json()
+
+  # Example usage:
+  # add_toggle_to_page("24ecb17dcc4480beb3a6e6f0e4751989", "Add_toggle_test", "This is a test toggle")
