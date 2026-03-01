@@ -25,11 +25,11 @@ solution: |
           "page_size": 3,
           "sorts":[
               {
-                  "property": "importance",
+                  "property": "Importance",
                   "direction": "descending"
               },
               {
-                  "property": "urgency",
+                  "property": "Urgency",
                   "direction": "descending"
               }
           ]

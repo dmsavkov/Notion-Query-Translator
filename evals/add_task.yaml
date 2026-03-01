@@ -40,17 +40,21 @@ solution: |
                       }
                   ]
               },
-              "Date": {
+              "Due Date": {
                   "date": {
                       "start": today_date
                   }
               },
               "Importance": {
-                  "number": importance
+                  "select": {
+                      "name": str(importance)
+                  }
               },
-              "Projects": {
-                  "multi_select": [
-                      {"name": project} for project in projects
+              "Project": {
+                  "relation": [
+                      {
+                          "id": project_id  # Map project names to their page IDs
+                      } for project_id in get_project_ids(projects)
                   ]
               }
           }
