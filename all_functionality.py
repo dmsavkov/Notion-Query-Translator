@@ -1,0 +1,1230 @@
+# ── Utils ──────────────────────────────────────────────────────────────────────────────
+import asyncio
+import json
+import logging
+import math
+import os
+import re
+import subprocess
+import sys
+from functools import partial
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import openai
+
+from config import (
+    CONFIG,
+    SearchResult,
+    TextNode,
+    setup,
+    load_eval_tasks,
+    load_storage,
+    load_corpora_vectorized,
+)
+from prompts import (
+    EVAL_CRITERIA,
+    build_analyze_requirements_prompt,
+    build_cot_decompose_prompt,
+    build_domain_decompose_prompt,
+    build_generate_code_prompt,
+    build_generate_request_plan_prompt,
+    build_generate_tests_draft_prompt,
+    build_generate_tests_grade_prompt,
+    build_judge_category_prompt,
+    build_multi_query_prompt,
+    build_preflect_prompt,
+    build_reflect_code_prompt,
+)
+
+setup()
+
+logger = logging.getLogger(__name__)
+
+eval_tasks = load_eval_tasks()
+storage = load_storage()
+corpora_vectorized = load_corpora_vectorized()
+
+
+def extract_json_from_response(response_content: Optional[str]) -> Dict[str, Any]:
+    """
+    Extract and parse JSON from LLM response content.
+    
+    Handles multiple formats:
+    1. Direct JSON string
+    2. JSON wrapped in markdown code blocks (```json ... ```)
+    3. JSON with extra whitespace/newlines
+    
+    Args:
+        response_content: Raw response content from LLM
+        
+    Returns:
+        Parsed JSON as dictionary
+        
+    Raises:
+        ValueError: If JSON cannot be extracted or parsed
+    """
+    if response_content is None:
+        raise ValueError("Response content is None")
+    
+    # Try direct parsing first
+    try:
+        return json.loads(response_content)
+    except json.JSONDecodeError:
+        logger.debug("Direct JSON parsing failed, attempting markdown extraction")
+    
+    # Try extracting from markdown code blocks
+    # Pattern matches: ```json\n{...}\n``` or ```\n{...}\n```
+    patterns = [
+        r'```json\s*\n(.*?)\n```',  # ```json ... ```
+        r'```\s*\n(.*?)\n```',       # ``` ... ```
+        r'```json\s*(.*?)```',       # ```json...``` (no newlines)
+        r'```\s*(.*?)```',           # ```...``` (no newlines)
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, response_content, re.DOTALL)
+        if match:
+            json_str = match.group(1).strip()
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                logger.debug(f"Failed to parse JSON from pattern: {pattern}")
+                continue
+    
+    # Fallback: Try the split method from notebook
+    # result.split('```')[1][5:] - splits by ``` and takes second part, skipping "json\n"
+    try:
+        parts = response_content.split('```')
+        if len(parts) >= 3:  # Should have at least [before, content, after]
+            json_str = parts[1]
+            # Remove "json" prefix if present
+            if json_str.startswith('json'):
+                json_str = json_str[4:].strip()
+            return json.loads(json_str)
+    except (json.JSONDecodeError, IndexError) as e:
+        logger.debug(f"Fallback split method failed: {e}")
+    
+    # If all methods fail, raise error with helpful message
+    raise ValueError(
+        f"Failed to extract JSON from response. "
+        f"Content preview: {response_content[:200]}..."
+    )
+
+
+
+
+
+# ── Search Vectors ──────────────────────────────────────────────────────────────
+
+def _cosine_similarity(a: List[float], b: List[float]) -> float:
+    """Cosine similarity between two vectors. O(D) where D = embedding dim."""
+    dot = sum(x * y for x, y in zip(a, b))
+    mag_a = math.sqrt(sum(x * x for x in a))
+    mag_b = math.sqrt(sum(y * y for y in b))
+    if mag_a == 0.0 or mag_b == 0.0:
+        return 0.0
+    return dot / (mag_a * mag_b)
+
+async def search_vectors(
+    nodes: List[TextNode],
+    storage: Dict[str, Dict[str, Any]],
+    query: str,
+    top_k: Optional[int] = None,
+    threshold: Optional[float] = None,
+) -> List[SearchResult]:
+    """
+    Retrieve the most relevant chunks for a query using cosine similarity.
+
+    Embeds the query string once, then performs an O(N) linear scan over all
+    leaf nodes. Returns results sorted by descending score, filtered by either
+    top_k or a minimum similarity threshold (or both — threshold applied first,
+    then top_k cap).
+
+    Args:
+        nodes:      List of TextNode leaf objects (with embeddings).
+        storage:    Storage dict from process_corpora_to_hierarchy.
+        query:      Plain-text search query.
+        top_k:      Maximum number of results to return (None = use default 5).
+        threshold:  Minimum cosine similarity to include (None = no filter).
+
+    Returns:
+        List of SearchResult dataclasses sorted by score descending.
+    """
+    # Apply defaults if not provided
+    if top_k is None:
+        top_k = 5
+    if threshold is None:
+        threshold = None
+    
+    # Embed the query using the embedding wrapper
+    query_vec: List[float] = embed_text(query)
+
+    results: List[SearchResult] = []
+
+    for node in nodes:
+        if not node.embedding:
+            continue
+
+        score = _cosine_similarity(query_vec, node.embedding)
+
+        # Threshold gate
+        if threshold is not None and score < threshold:
+            continue
+
+        node_meta = storage.get(node.id, {})
+        results.append(SearchResult(
+            node=node,
+            text=node_meta.get("text", ""),
+            score=score,
+            layer=node_meta.get("layer", -1),
+            parent_id=node_meta.get("parent_id"),
+        ))
+
+    # Sort descending by score
+    results.sort(key=lambda r: r.score, reverse=True)
+
+    if top_k is not None:
+        results = results[:top_k]
+
+    return results
+
+async def summarize_retrieval_results(results: list[SearchResult]) -> str:
+    """Summarize retrieved chunks with bullet points for coding guidance."""
+    concatenated_retrieval = "".join([r.text for r in results])
+    summary = await async_chat_wrapper(
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    "Summarize the following retrieved context in concise bullet points to guide coding:\n\n"
+                    f"{concatenated_retrieval}"
+                ),
+            }
+        ],
+        max_tokens=1500,
+    )
+    return summary
+
+
+# ── Query Engineer ──────────────────────────────────────────────────────────────
+
+class QueryEngineer:
+    """
+    Query-engineering helpers with configurable model and temperature.
+
+    All methods are async and use async_chat_wrapper with the model and temperature
+    specified at instantiation time.
+    """
+
+    def __init__(
+        self,
+        temperature: Optional[float] = None,
+        model_size: Optional[str] = None,
+    ):
+        """
+        Initialize the QueryEngineer with default temperature and model.
+
+        Args:
+            temperature: Sampling temperature for all methods (None = use CONFIG default).
+            model_size:  Model size for all methods (None = use CONFIG default).
+        """
+        self.temperature = temperature if temperature is not None else CONFIG.query_engineer_temperature
+        self.model_size = model_size if model_size is not None else CONFIG.default_model
+
+    # ── 1. Multi-Query ─────────────────────────────────────────────────────
+    async def multi_query(
+        self,
+        query: str,
+        n: Optional[int] = None,
+    ) -> List[str]:
+        """
+        Generate `n` homogeneous reformulations of the original query.
+
+        Each variant targets the same intent from a slightly different angle
+        (wording, emphasis, perspective) so that vector search can surface
+        chunks it might have missed with a single query.
+
+        Args:
+            query: Original user query.
+            n:     Number of variants to generate (None = use CONFIG default).
+
+        Returns:
+            List of `n` query strings (does NOT include the original).
+        """
+        if n is None:
+            n = CONFIG.multi_query_variants
+        
+        prompt = build_multi_query_prompt(query=query, n=n)
+        result = await async_chat_wrapper(
+            messages=[{"role": "user", "content": prompt}],
+            json_output=True,
+            max_tokens=CONFIG.multi_query_max_tokens,
+            temperature=self.temperature,
+            model_size=self.model_size,
+        )
+        return result.get("queries", [])
+
+    # ── 2. CoT Decomposition ────────────────────────────────────────────────
+    async def cot_decompose(
+        self,
+        query: str,
+    ) -> List[str]:
+        """
+        Decompose a complex query into ordered sub-questions via chain-of-thought.
+
+        The model reasons step-by-step about what must be known first to answer
+        the query, then surfacing each reasoning step as its own search query.
+        Useful when the original query has implicit prerequisites.
+
+        Args:
+            query: Original complex query.
+
+        Returns:
+            Ordered list of sub-questions, from foundational to specific.
+        """
+        prompt = build_cot_decompose_prompt(query=query)
+        result = await async_chat_wrapper(
+            messages=[{"role": "user", "content": prompt}],
+            json_output=True,
+            max_tokens=CONFIG.decomp_max_tokens,
+            temperature=self.temperature,
+            model_size=self.model_size,
+        )
+        return result.get("sub_questions", [])
+
+    # ── 3. Domain Decomposition (Notion-specific) ───────────────────────────
+    async def domain_decompose(
+        self,
+        query: str,
+    ) -> List[str]:
+        """
+        Decompose a query by identifying Notion-specific concepts and
+        generating targeted search instructions for each.
+
+        This variant understands the Notion data model (databases, pages,
+        properties, blocks, data sources) and generates sub-queries that
+        map directly onto Notion API building blocks.
+
+        Args:
+            query: Original query (typically a Notion task).
+
+        Returns:
+            List of Notion-concept-focused search queries.
+        """
+        prompt = build_domain_decompose_prompt(query=query)
+        result = await async_chat_wrapper(
+            messages=[{"role": "user", "content": prompt}],
+            json_output=True,
+            max_tokens=CONFIG.decomp_max_tokens,
+            temperature=self.temperature,
+            model_size=self.model_size,
+        )
+        return result.get("queries", [])
+
+async def search_multiple_queries(
+    queries: List[str],
+    search_fn: partial,
+) -> List[SearchResult]:
+    """
+    Execute multiple search queries and consolidate results with deduplication.
+
+    Takes a list of queries and a partial function wrapping search_vectors.
+    Executes each query, collects all results, and removes duplicates by node ID
+    while preserving the highest score for each unique node.
+
+    Args:
+        queries:   List of search query strings.
+        search_fn: Partial function with signature: search_fn(query) -> List[SearchResult].
+                   Typically: partial(search_vectors, nodes=..., storage=..., top_k=..., threshold=...)
+
+    Returns:
+        Consolidated list of SearchResult objects with duplicates removed.
+        Results sorted by score (descending).
+    """
+    all_results: List[SearchResult] = []
+
+    # Execute search for each query
+    for query in queries:
+        results = await search_fn(query=query)
+        all_results.extend(results)
+
+    # Deduplicate by node ID, keeping highest score
+    unique_nodes: Dict[str, SearchResult] = {}
+    for result in all_results:
+        node_id = result.node.id
+        if node_id not in unique_nodes or result.score > unique_nodes[node_id].score:
+            unique_nodes[node_id] = result
+
+    # Convert back to list and sort by score (descending)
+    consolidated = list(unique_nodes.values())
+    consolidated.sort(key=lambda r: r.score, reverse=True)
+
+    # ── Log consolidated retrieval payload ───────────────────────────────────
+    payload_entries = [
+        {
+            "rank":      rank,
+            "node_id":   r.node.id,
+            "score":     round(r.score, 6),
+            "layer":     r.layer,
+            "parent_id": r.parent_id,
+            "text":      r.text,
+        }
+        for rank, r in enumerate(consolidated, start=1)
+    ]
+    logger.info(
+        "search_multiple_queries | queries=%s | total_raw=%d | consolidated=%d\n%s",
+        queries,
+        len(all_results),
+        len(consolidated),
+        json.dumps(payload_entries, ensure_ascii=False, indent=2),
+    )
+
+    return consolidated
+
+
+# ── Pipeline ─────────────────────────────────────────────────────────────────────────────
+
+_async_client = openai.AsyncOpenAI(
+    api_key=os.getenv("GOOGLE_API_KEY"),
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+    max_retries=8,
+)
+
+_MODEL_MAP = {
+    'largest': 'gemini-2.5-flash-lite',
+    "gemma27": 'gemma-3-27b-it',
+    "gemma12": 'gemma-3-12b-it',
+    'gemma4': 'gemma-3-4b-it',
+    'gemma1': 'gemma-3-1b-it',
+}
+
+def _check_finish_reason(model_name: str, finish_reason: str) -> None:
+    """Check and log the finish_reason from LLM response."""
+    print(f"[async_chat_wrapper] Model: {model_name}, finish_reason: {finish_reason}")
+    if finish_reason != "stop":
+        logger.warning(f"Non-stop finish_reason: {finish_reason} (response may be truncated)")
+
+async def async_chat_wrapper(
+    messages: list,
+    max_tokens: int = 2048,
+    temperature: float = 1.0,
+    json_output: bool = False,
+    model_size: str = "gemma27",
+) -> Any:
+    model_name = _MODEL_MAP.get(model_size, 'gemma-3-27b-it')
+    msgs = list(messages)
+    if json_output:
+        if 'gemini' in model_name:
+            response = await _async_client.chat.completions.parse(
+                model=model_name,
+                messages=msgs,
+                temperature=temperature,
+                max_completion_tokens=max_tokens,
+                response_format={"type": "json_object"}
+            )
+            _check_finish_reason(model_name, response.choices[0].finish_reason)
+            return json.loads(response.choices[0].message.content)
+        
+        else:
+            msgs.append({"role": "user", "content": "Please provide the output in JSON format."})
+         
+    response = await _async_client.chat.completions.create(
+        model=model_name,
+        messages=msgs,
+        temperature=temperature,
+        max_completion_tokens=max_tokens,
+    )
+    _check_finish_reason(model_name, response.choices[0].finish_reason)
+    
+    content = response.choices[0].message.content
+    if json_output:
+        try:
+            json_content = extract_json_from_response(content)
+            return json_content
+        except ValueError:
+            return {}
+    return content
+
+
+def embed_text(text: str) -> List[float]:
+    """
+    Embed text synchronously using Gemini embedding model.
+    
+    Args:
+        text: Text to embed (single string or list of strings)
+        
+    Returns:
+        Embedding vector as a list of floats
+    """
+    response = openai.embeddings.create(
+        model="gemini-embedding-001",
+        input=text
+    )
+    return response.data[0].embedding
+
+
+# ── Step 1.5: Requirements Analysis ────────────────────────────────────────────────
+async def analyze_requirements(user_prompt: str) -> Dict[str, str]:
+    """
+    Pre-RAG analysis using a medium model to extract key requirements.
+    
+    This lightweight step identifies the top documentation/API concepts needed
+    before dumping the full corpora, making RAG retrieval more targeted.
+    
+    Returns a dict with requirement names as keys and descriptions as values.
+    """
+    prompt = build_analyze_requirements_prompt(user_prompt=user_prompt)
+    
+    result: Dict[str, str] = await async_chat_wrapper(
+        [{"role": "user", "content": prompt}],
+        json_output=True, max_tokens=600, temperature=0.2, model_size="gemma12",
+    )
+    
+    logger.info("Requirements analysis: %s", result)
+    return result
+
+
+# ── Step 3: General Info ────────────────────────────────────────────────────────────────
+def build_general_info(user_prompt: str, rag_context: str, request_plan: str) -> str:
+    """
+    Assemble a structured context block reused across steps 3-5.
+
+    Args:
+        user_prompt:  Original user task.
+        rag_context:  Plain-text RAG context (summary or raw chunks concatenated).
+        request_plan: Bullet-point implementation plan from generate_request_plan.
+
+    Uses XML tags and places most-critical data at the start/end (lost-in-middle mitigation).
+    """
+    return (
+        # Most-important anchor at the top
+        "<user_request>\n"
+        f"{user_prompt}\n"
+        "</user_request>\n\n"
+
+        "<request_plan>\n"
+        f"{request_plan}\n"
+        "</request_plan>\n\n"
+
+        # RAG context in the middle
+        "<api_context>\n"
+        f"{rag_context}\n"
+        "</api_context>\n\n"
+
+        # Repeat key request at the end for recency bias
+        "<reminder>Implement exactly what is described in <user_request>. "
+        "Use only the endpoints and schemas provided in <api_context>.</reminder>\n"
+    )
+
+
+async def generate_request_plan(user_prompt: str, rag_context: str) -> str:
+    """Bullet-point plan of what needs to be implemented — large model."""
+    prompt = build_generate_request_plan_prompt(user_prompt=user_prompt, rag_context=rag_context)
+    return await async_chat_wrapper(
+        [{"role": "user", "content": prompt}],
+        json_output=False, max_tokens=500, temperature=0.3, model_size="gemma27",
+    )
+
+
+# ── Step 4: Generate Tests ────────────────────────────────────────────────────────────────
+_TEST_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "test_code": {"type": "string", "description": "Complete, runnable pytest code"}
+    },
+    "required": ["test_code"]
+}
+
+_GRADE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "test_code": {"type": "string"},
+        "reasoning": {"type": "string"}
+    },
+    "required": ["test_code", "reasoning"]
+}
+
+
+async def generate_tests(general_info: str) -> str:
+    """
+    TDD step — 3 parallel different-model drafts, then 1 medium-model grader
+    picks / merges the best result.
+
+    Returns ready-to-write Python test code (string).
+    """
+    draft_prompt = build_generate_tests_draft_prompt(general_info=general_info)
+
+    # 3 parallel different-size drafts
+    drafts: list[Dict] = await asyncio.gather(*[
+        async_chat_wrapper(
+            [{"role": "user", "content": draft_prompt}],
+            json_output=True, max_tokens=2200, temperature=0.7, model_size="gemma1",
+        ),
+        async_chat_wrapper(
+            [{"role": "user", "content": draft_prompt}],
+            json_output=True, max_tokens=2200, temperature=0.7, model_size="gemma4",
+        ),
+        async_chat_wrapper(
+            [{"role": "user", "content": draft_prompt}],
+            json_output=True, max_tokens=2200, temperature=0.7, model_size="gemma12",
+        ),
+    ])
+
+    candidates_block = "\n\n".join(
+        f"<candidate_{i+1}>\n{d.get('test_code', '')}\n</candidate_{i+1}>"
+        for i, d in enumerate(drafts)
+    )
+
+    grade_prompt = build_generate_tests_grade_prompt(
+        general_info=general_info,
+        candidates_block=candidates_block,
+    )
+
+    graded: Dict = await async_chat_wrapper(
+        [{"role": "user", "content": grade_prompt}],
+        json_output=True, max_tokens=2600, temperature=0.2, model_size="gemma27",
+    )
+
+    logger.info("Test grader reasoning: %s", graded.get("reasoning", ""))
+    return graded.get("test_code", "")
+
+
+def write_tests(test_code: str, path: str = "current_tests.py") -> None:
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(test_code)
+    print(f"Tests written → {path}")
+
+
+# ── Step 5: Generate Code ────────────────────────────────────────────────────────────────
+_CODE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "code": {"type": "string", "description": "Complete Python solution code"},
+        "function_name": {"type": "string"}
+    },
+    "required": ["code", "function_name"]
+}
+
+
+async def generate_code(
+    general_info: str,
+    test_code: str,
+    feedback: Optional[str] = None,
+) -> Dict[str, str]:
+    """
+    Generate the solution code.
+
+    Args:
+        general_info: Assembled context from step 3.
+        test_code:    The tests the code must pass (from step 4).
+        feedback:     Optional judge feedback from a previous failed attempt.
+
+    Returns:
+        {"code": "...", "function_name": "..."}
+    """
+    prompt = build_generate_code_prompt(
+        general_info=general_info,
+        test_code=test_code,
+        feedback=feedback,
+    )
+
+    result: Dict = await async_chat_wrapper(
+        [{"role": "user", "content": prompt}],
+        json_output=True, max_tokens=2500, temperature=0.3, model_size="gemma27",
+    )
+    return result
+
+
+def write_solution(code: str, path: str = "solution.py") -> None:
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(code)
+    print(f"Solution written → {path}")
+
+
+# ── Step 6: Judge + Reflect ─────────────────────────────────────────────────────────────
+
+# ── Global reflection context — accumulates extra RAG lookups across trials ──
+REFLECTION_CONTEXT: List[str] = []
+
+_JUDGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "reasoning": {
+            "type": "string",
+            "description": "1-2 sentence summary of what the evidence shows before reaching a verdict"
+        },
+        "pass": {"type": "boolean"},
+        "feedback": {
+            "type": "string",
+            "description": "Failure analysis and concrete fix guidance for next code attempt"
+        }
+    },
+    "required": ["reasoning", "pass", "feedback"]
+}
+
+_PREFLECT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "needs_lookup": {"type": "boolean"},
+        "queries": {
+            "type": "array",
+            "items": {"type": "string"},
+            "maxItems": 3,
+            "description": "RAG queries to fetch more Notion API docs. Empty if needs_lookup=false."
+        }
+    },
+    "required": ["needs_lookup", "queries"]
+}
+
+
+def run_tests(test_path: str = "current_tests.py") -> Dict[str, Any]:
+    """Run pytest as a subprocess, return stdout/stderr + exit code."""
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", test_path, "-v", "--tb=short"],
+        capture_output=True, text=True,
+    )
+    return {
+        "exit_code": result.returncode,
+        "stdout":    result.stdout,
+        "stderr":    result.stderr,
+        "passed":    result.returncode == 0,
+    }
+
+
+async def _reflect_search(query: str) -> str:
+    """
+    Search RAG (top_k=1) for a single query and auto-summarize with a small model.
+    Appends the summarized result to REFLECTION_CONTEXT and returns it.
+    """
+    results = await search_vectors(
+        query=query,
+        nodes=corpora_vectorized,
+        storage=storage,
+        top_k=1,
+        threshold=0.3,
+    )
+    if not results:
+        snippet = f"[No results for: {query}]"
+        REFLECTION_CONTEXT.append(snippet)
+        return snippet
+
+    raw_text = results[0].text
+    summary = await async_chat_wrapper(
+        [{"role": "user", "content": (
+            f"Summarize the following Notion API documentation snippet in 3-5 sentences. "
+            f"Keep all endpoint URLs, field names, and required properties verbatim.\n\n{raw_text}"
+        )}],
+        json_output=False, max_tokens=300, temperature=0.1, model_size="gemma4b",
+    )
+    entry = f"[Query: {query}]\n{summary}"
+    REFLECTION_CONTEXT.append(entry)
+    return entry
+
+
+async def _preflect(
+    general_info: str,
+    generated_code: str,
+    test_summary: str,
+    sol_summary: str,
+) -> Dict[str, Any]:
+    """
+    Lightweight first pass: decide if extra RAG lookups are needed and which queries.
+    Returns {"needs_lookup": bool, "queries": [...]} — max 3 queries.
+    """
+    prompt = build_preflect_prompt(
+        general_info=general_info,
+        generated_code=generated_code,
+        test_summary=test_summary,
+        sol_summary=sol_summary,
+    )
+    return await async_chat_wrapper(
+        [{"role": "user", "content": prompt}],
+        json_output=True, max_tokens=300, temperature=0.1, model_size="gemma12",
+    )
+
+
+async def reflect_code(
+    general_info: str,
+    generated_code: str,
+    test_results: Dict[str, Any],
+    solution_run: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    LLM reflection step that diagnoses failures and gives repair guidance.
+
+    1. Runs a lightweight preflect pass to decide if extra RAG lookups are needed.
+    2. If yes, fetches up to 3 targeted RAG snippets (top_k=1, gemma4 summary),
+       accumulated in the global REFLECTION_CONTEXT.
+    3. Runs the full reflection with all available context injected.
+
+    Returns {"reasoning": str, "pass": bool, "feedback": "..."}
+    """
+    test_summary = (
+        f"Exit code: {test_results['exit_code']}\n"
+        f"Passed: {test_results['passed']}\n\n"
+        f"--- stdout ---\n{test_results['stdout'][-3000:]}\n"
+        f"--- stderr ---\n{test_results['stderr'][-1000:]}"
+    )
+
+    sol_summary = ""
+    if solution_run:
+        sol_summary = (
+            "<solution_run>\n"
+            f"Exit code: {solution_run['exit_code']}\n"
+            f"--- stdout ---\n{solution_run['stdout'][-2000:]}\n"
+            f"--- stderr ---\n{solution_run['stderr'][-1000:]}\n"
+            "</solution_run>\n\n"
+        )
+
+    # ── Step 1: Preflect — decide if extra RAG lookups needed ────────────────
+    preflect = await _preflect(general_info, generated_code, test_summary, sol_summary)
+    needs_lookup = preflect.get("needs_lookup", False)
+    lookup_queries = preflect.get("queries", [])[:3]
+
+    if needs_lookup and lookup_queries:
+        print(f"  [reflect] RAG lookup needed — {len(lookup_queries)} quer{'y' if len(lookup_queries)==1 else 'ies'}: {lookup_queries}")
+        for q in lookup_queries:
+            await _reflect_search(q)
+    else:
+        print("  [reflect] No extra RAG lookup needed.")
+
+    # ── Step 2: Build extra context block from accumulated REFLECTION_CONTEXT ─
+    extra_ctx_block = ""
+    if REFLECTION_CONTEXT:
+        joined = "\n\n".join(REFLECTION_CONTEXT)
+        extra_ctx_block = (
+            "<reflection_context>\n"
+            "Additional Notion API documentation fetched during reflection:\n\n"
+            f"{joined}\n"
+            "</reflection_context>\n\n"
+        )
+
+    # ── Step 3: Full reflection ───────────────────────────────────────────────
+    prompt = build_reflect_code_prompt(
+        general_info=general_info,
+        extra_ctx_block=extra_ctx_block,
+        generated_code=generated_code,
+        test_summary=test_summary,
+        sol_summary=sol_summary,
+    )
+
+    return await async_chat_wrapper(
+        [{"role": "user", "content": prompt}],
+        json_output=True, max_tokens=900, temperature=0.2, model_size="gemma27",
+    )
+
+# ── Evaluation ─────────────────────────────────────────────────────────────────────────────
+
+
+async def run_agent_pipeline(
+    user_prompt: str,
+    retrieval_context: str,
+    max_trials: int = CONFIG.max_trials,
+    with_tests: bool = True,
+    minimal: bool = False,
+) -> Dict[str, Any]:
+    """
+    Full agent loop with EXTERNAL retrieval context injection.
+
+    Retrieval is done outside this function. This function only consumes
+    `retrieval_context` and executes plan → tests/code/reflection (or minimal path).
+
+    Minimal mode (`minimal=True`) = plan + code only and force-overrides:
+      - max_trials=1
+      - with_tests=False
+      - reflection/judge disabled
+    """
+    artifacts: Dict[str, Any] = {"trials": []}
+    separator = "=" * 60
+
+    # Enforce minimal-mode overrides inside pipeline (ignore conflicting args)
+    if minimal:
+        if max_trials != 1 or with_tests:
+            print("[pipeline] minimal=True -> overriding args: max_trials=1, with_tests=False")
+        max_trials = 1
+        with_tests = False
+
+    # Reset reflection context for this pipeline run
+    global REFLECTION_CONTEXT
+    REFLECTION_CONTEXT = []
+
+    # ── Step 1: Use externally provided retrieval context ─────────────────────
+    print(f"\n{separator}\nSTEP 1 — Using provided retrieval context …")
+    rag_context = retrieval_context
+    artifacts["rag_context"] = rag_context
+    print(f"  Context length: {len(rag_context)} chars")
+
+    # ── Step 2: Plan + general_info ───────────────────────────────────────────
+    print(f"\n{separator}\nSTEP 2 — Generating request plan …")
+    request_plan = await generate_request_plan(user_prompt, rag_context)
+    general_info = build_general_info(user_prompt, rag_context, request_plan)
+    artifacts["request_plan"] = request_plan
+    artifacts["general_info"] = general_info
+    print(request_plan[:300])
+
+    # ── Minimal mode: plan + code only ────────────────────────────────────────
+    if minimal:
+        print(f"\n{separator}\nMINIMAL MODE — plan + code only")
+        code_result = await generate_code(general_info, test_code="No tests are used.", feedback=None)
+        generated_code = code_result.get("code", "")
+        function_name = code_result.get("function_name", "")
+        write_solution(generated_code)
+
+        trial_data: Dict[str, Any] = {
+            "trial_num": 1,
+            "code": generated_code,
+            "function_name": function_name,
+            "test_results": {"exit_code": None, "stdout": "", "stderr": "", "passed": None},
+            "solution_run": None,
+            "verdict": {
+                "reasoning": "Minimal mode skips reflection.",
+                "pass": None,
+                "feedback": "",
+            },
+        }
+        artifacts["trials"].append(trial_data)
+        artifacts["test_code"] = "No tests are used."
+        artifacts["final_code"] = generated_code
+        artifacts["passed"] = None
+        artifacts["total_trials"] = 1
+        print(f"  function: {function_name}")
+        print(f"\n{separator}\nAGENT COMPLETE — minimal mode")
+        return artifacts
+
+    # ── Step 3: Generate tests (optional) ────────────────────────────────────
+    if with_tests:
+        print(f"\n{separator}\nSTEP 3 — Generating tests …")
+        test_code = await generate_tests(general_info)
+        write_tests(test_code)
+    else:
+        test_code = "No tests are used. "
+        test_results = {
+            "exit_code": None,
+            "stdout": "",
+            "stderr": "",
+            "passed": None,
+        }
+
+    artifacts["test_code"] = test_code
+    feedback: Optional[str] = None
+
+    for trial in range(1, max_trials + 1):
+        trial_data: Dict[str, Any] = {"trial_num": trial}
+        print(f"\n{separator}\nTRIAL {trial}/{max_trials}")
+
+        # ── Step 4: Generate code ─────────────────────────────────────────────
+        print("STEP 4 — Generating solution code …")
+        code_result = await generate_code(general_info, test_code, feedback=feedback)
+        generated_code = code_result.get("code", "")
+        function_name = code_result.get("function_name", "")
+        write_solution(generated_code)
+        trial_data["code"] = generated_code
+        trial_data["function_name"] = function_name
+        print(f"  function: {function_name}")
+
+        # ── Run tests ─────────────────────────────────────────────────────────
+        print("Running pytest …")
+        if with_tests:
+            test_results = run_tests()
+            trial_data["test_results"] = test_results
+            print(f"  tests passed: {test_results['passed']}")
+            if not test_results["passed"]:
+                print(test_results["stdout"][-1000:])
+        else:
+            trial_data["test_results"] = test_results
+
+        # ── Run solution.py ───────────────────────────────────────────────────
+        print("Running solution.py …")
+        sol_run = subprocess.run(
+            [sys.executable, "solution.py"],
+            capture_output=True, text=True, timeout=30,
+        )
+        trial_data["solution_run"] = {
+            "exit_code": sol_run.returncode,
+            "stdout": sol_run.stdout,
+            "stderr": sol_run.stderr,
+        }
+        print(f"  solution.py exit code: {sol_run.returncode}")
+        if sol_run.returncode != 0:
+            print(f"  stderr: {sol_run.stderr[:500]}")
+
+        # ── Judge ─────────────────────────────────────────────────────────────
+        print("Judging code …")
+        verdict = await reflect_code(general_info, generated_code, test_results, solution_run=trial_data["solution_run"])
+        trial_data["verdict"] = verdict
+        trial_data["reflection_context"] = list(REFLECTION_CONTEXT)  # snapshot after this trial
+
+        passed = verdict.get("pass", False)
+        feedback = verdict.get("feedback", "")
+
+        print(f"  Verdict: {'PASS' if passed else 'FAIL'}")
+
+        artifacts["trials"].append(trial_data)
+
+        if passed:
+            print(f"\n{separator}\nAGENT COMPLETE — trial {trial}")
+            artifacts["final_code"] = generated_code
+            artifacts["passed"] = True
+            artifacts["total_trials"] = trial
+            return artifacts
+
+        if trial < max_trials:
+            print(f"\n  Feedback: {str(feedback)[:200]}\n  → Retrying …")
+            general_info = (
+                general_info.rstrip("</general_info>").rstrip()
+                + f"\n\n<previous_attempt_feedback trial='{trial}'>\n{feedback}\n"
+                  "</previous_attempt_feedback>\n</general_info>"
+            )
+
+    print(f"\n{separator}\nAGENT EXHAUSTED — max trials reached.")
+    artifacts["final_code"] = generated_code
+    artifacts["passed"] = False
+    artifacts["total_trials"] = max_trials
+    return artifacts
+
+
+async def _judge_single_category(
+    category: str,
+    criteria: Dict[str, str],
+    model_size: str,
+    artifact_text: str,
+    user_query: str,
+    rag_data_str: str = "",
+) -> Dict[str, Any]:
+    """LLM judge for one evaluation category. Returns {criterion: {score, reason}}."""
+    prompt = build_judge_category_prompt(
+        category=category,
+        criteria=criteria,
+        user_query=user_query,
+        artifact_text=artifact_text,
+        rag_data_str=rag_data_str,
+    )
+
+    return await async_chat_wrapper(
+        [{"role": "user", "content": prompt}],
+        json_output=True, max_tokens=600, temperature=0.1, model_size=model_size,
+    )
+
+
+async def run_all_evaluations(
+    pipeline_artifacts: Dict[str, Any],
+    user_query: str,
+    eval_criteria: Dict[str, Dict] = EVAL_CRITERIA,
+) -> Dict[str, Any]:
+    """
+    Run ALL evaluation categories on artifacts from a single pipeline run.
+
+    All categories — including "rag" — use the adversarial LLM judge
+    (_judge_single_category). The "rag" artifact is the retrieved context text.
+
+    Returns:
+    {
+        "rag":        {criterion: {"score": 0|1, "reason": …}, …},
+        "plan":       {…},
+        "tests":      {…},
+        "code":       {…},
+        "reflection": {…},
+        "summary": {
+            "rag_score": float, "plan_score": float, "tests_score": float,
+            "code_score": float, "reflection_score": float, "overall_score": float
+        }
+    }
+    """
+    rag_context  = pipeline_artifacts.get("rag_context", "")
+    last_trial   = (pipeline_artifacts.get("trials") or [{}])[-1]
+
+    # Build reflection text from per-trial judge feedback
+    reflection_parts = [
+        f"Trial {t['trial_num']} feedback:\n{t['verdict'].get('feedback', '')}"
+        for t in pipeline_artifacts.get("trials", [])
+        if t.get("verdict", {}).get("feedback")
+    ]
+    reflection_text = "\n\n".join(reflection_parts) or "(no feedback produced)"
+
+    artifact_map = {
+        "rag":        rag_context or "(no RAG context produced)",
+        "plan":       pipeline_artifacts.get("request_plan", "(no plan produced)"),
+        "tests":      pipeline_artifacts.get("test_code",    "(no tests produced)"),
+        "code":       last_trial.get("code", pipeline_artifacts.get("final_code", "(no code produced)")),
+        "reflection": reflection_text,
+    }
+
+    # ── All categories: parallel LLM judges ──────────────────────────────────
+    judge_tasks = [
+        _judge_single_category(
+            category=cat,
+            criteria=eval_criteria[cat]["criteria"],
+            model_size=eval_criteria[cat]["model"],
+            artifact_text=artifact_map.get(cat, ""),
+            user_query=user_query,
+            rag_data_str=rag_context[:3000] if cat != "rag" else "",
+        )
+        for cat in eval_criteria
+    ]
+    judge_results = await asyncio.gather(*judge_tasks)
+
+    eval_results: Dict[str, Any] = {}
+    for cat, raw in zip(eval_criteria.keys(), judge_results):
+        eval_results[cat] = raw
+
+    # ── Compute per-category scores ───────────────────────────────────────────
+    summary: Dict[str, float] = {}
+    for category, config in eval_criteria.items():
+        criteria_keys = list(config["criteria"].keys())
+        scores = [
+            eval_results.get(category, {}).get(k, {}).get("score", 0)
+            if isinstance(eval_results.get(category, {}).get(k), dict) else 0
+            for k in criteria_keys
+        ]
+        summary[f"{category}_score"] = round(sum(scores) / max(len(criteria_keys), 1), 3)
+
+    summary["overall_score"] = round(
+        sum(v for k, v in summary.items() if k.endswith("_score")) / len(eval_criteria), 3
+    )
+    eval_results["summary"] = summary
+
+    return eval_results
+
+
+print("Evaluation functions defined.")
+
+
+def plot_evaluation_results(
+    all_results: Dict[str, Dict[str, Any]],
+    eval_criteria: Dict[str, Dict] = EVAL_CRITERIA,
+) -> None:
+    """
+    Visualize evaluation results across all eval tasks.
+    
+    Args:
+        all_results: Dict mapping task_id -> eval_results (output of run_all_evaluations).
+        eval_criteria: The criteria definitions for axis labels.
+    
+    Produces:
+        1. Grouped bar chart — per-criterion scores across tasks
+        2. Radar chart — category-level scores per task
+        3. Summary heatmap — tasks x categories
+    """
+    task_ids = list(all_results.keys())
+    categories = [c for c in eval_criteria.keys()]
+    
+    if not task_ids:
+        print("No results to plot.")
+        return
+    
+    # ── Figure 1: Summary Heatmap (tasks × categories) ───────────────────
+    fig1, ax1 = plt.subplots(figsize=(8, max(3, len(task_ids) * 1.2)))
+    
+    heatmap_data = []
+    for tid in task_ids:
+        row = []
+        summary = all_results[tid].get("summary", {})
+        for cat in categories:
+            row.append(summary.get(f"{cat}_score", 0.0))
+        heatmap_data.append(row)
+    
+    heatmap_arr = np.array(heatmap_data)
+    im = ax1.imshow(heatmap_arr, cmap="RdYlGn", vmin=0, vmax=1, aspect="auto")
+    
+    ax1.set_xticks(range(len(categories)))
+    ax1.set_xticklabels([c.title() for c in categories], rotation=45, ha="right")
+    ax1.set_yticks(range(len(task_ids)))
+    ax1.set_yticklabels(task_ids)
+    
+    # Annotate cells
+    for i in range(len(task_ids)):
+        for j in range(len(categories)):
+            val = heatmap_arr[i, j]
+            color = "white" if val < 0.4 else "black"
+            ax1.text(j, i, f"{val:.0%}", ha="center", va="center", color=color, fontweight="bold")
+    
+    fig1.colorbar(im, ax=ax1, label="Score", shrink=0.8)
+    ax1.set_title("Evaluation Heatmap — Tasks × Categories", fontweight="bold", pad=12)
+    fig1.tight_layout()
+    plt.show()
+    
+    # ── Figure 2: Per-criterion breakdown (grouped bars) ─────────────────
+    fig2, axes = plt.subplots(
+        len(categories), 1,
+        figsize=(10, 3.5 * len(categories)),
+        squeeze=False,
+    )
+    
+    colors = plt.cm.Set2(np.linspace(0, 1, max(len(task_ids), 3)))
+    
+    for cat_idx, cat in enumerate(categories):
+        ax = axes[cat_idx, 0]
+        criteria_keys = list(eval_criteria[cat]["criteria"].keys())
+        x = np.arange(len(criteria_keys))
+        width = 0.8 / max(len(task_ids), 1)
+        
+        for tid_idx, tid in enumerate(task_ids):
+            cat_result = all_results[tid].get(cat, {})
+            scores = []
+            for ck in criteria_keys:
+                entry = cat_result.get(ck, {})
+                scores.append(entry.get("score", 0) if isinstance(entry, dict) else 0)
+            
+            offset = (tid_idx - len(task_ids) / 2 + 0.5) * width
+            bars = ax.bar(x + offset, scores, width, label=tid, color=colors[tid_idx % len(colors)])
+        
+        ax.set_xticks(x)
+        ax.set_xticklabels(
+            [k.replace("_", " ").title() for k in criteria_keys],
+            rotation=30, ha="right", fontsize=8,
+        )
+        ax.set_ylim(-0.1, 1.3)
+        ax.set_ylabel("Score")
+        ax.set_title(f"{cat.upper()} (model: {eval_criteria[cat]['model']})", fontweight="bold")
+        ax.legend(fontsize=7, loc="upper right")
+        ax.axhline(y=0.5, color="gray", linestyle="--", alpha=0.4)
+    
+    fig2.suptitle("Per-Criterion Breakdown by Task", fontweight="bold", y=1.01)
+    fig2.tight_layout()
+    plt.show()
+    
+    # ── Figure 3: Radar chart — overall category scores per task ─────────
+    angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False).tolist()
+    angles += angles[:1]  # close the polygon
+    
+    fig3, ax3 = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
+    
+    for tid_idx, tid in enumerate(task_ids):
+        summary = all_results[tid].get("summary", {})
+        values = [summary.get(f"{cat}_score", 0) for cat in categories]
+        values += values[:1]
+        ax3.plot(angles, values, "o-", linewidth=2, label=tid, color=colors[tid_idx % len(colors)])
+        ax3.fill(angles, values, alpha=0.1, color=colors[tid_idx % len(colors)])
+    
+    ax3.set_thetagrids(
+        [a * 180 / np.pi for a in angles[:-1]],
+        [c.title() for c in categories],
+    )
+    ax3.set_ylim(0, 1)
+    ax3.set_title("Category Scores — Radar", fontweight="bold", pad=20)
+    ax3.legend(loc="upper right", bbox_to_anchor=(1.3, 1.1), fontsize=8)
+    fig3.tight_layout()
+    plt.show()
+    
+    # ── Print summary table ──────────────────────────────────────────────
+    print("\n" + "=" * 70)
+    print(f"{'Task':<25} {'Plan':>6} {'Tests':>6} {'Code':>6} {'Refl.':>6} {'Overall':>8}")
+    print("-" * 70)
+    for tid in task_ids:
+        s = all_results[tid].get("summary", {})
+        print(
+            f"{tid:<25} "
+            f"{s.get('plan_score', 0):>5.0%} "
+            f"{s.get('tests_score', 0):>5.0%} "
+            f"{s.get('code_score', 0):>5.0%} "
+            f"{s.get('reflection_score', 0):>5.0%} "
+            f"{s.get('overall_score', 0):>7.0%}"
+        )
+    print("=" * 70)
+
+
+print("Visualization function defined.")
