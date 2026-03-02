@@ -143,7 +143,7 @@ def setup() -> None:
     dotenv.load_dotenv()
     openai.api_key = os.getenv("GOOGLE_API_KEY")
     openai.base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
-    openai.max_retries = 10
+    openai.max_retries = 15
     missing = [k for k in ("GOOGLE_API_KEY",) if not os.getenv(k)]
     if missing:
         raise EnvironmentError(f"Missing required environment variables: {missing}")

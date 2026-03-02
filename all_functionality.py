@@ -391,7 +391,7 @@ async def search_multiple_queries(
 _async_client = openai.AsyncOpenAI(
     api_key=os.getenv("GOOGLE_API_KEY"),
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-    max_retries=8,
+    max_retries=15,
 )
 
 _MODEL_MAP = {
