@@ -1,0 +1,18 @@
+{
+  "run_name": "exp_3_no_query_translation_with_summarize",
+  "timestamp": "2026-03-02_10-42-11",
+  "output_dir": "evaluation_results\\rag_harness\\exp_3_no_query_translation_with_summarize_2026-03-02_10-42-11",
+  "experiment_meta": {
+    "llm_model_name": "gemma27",
+    "use_query_translation": false,
+    "use_summarization": true,
+    "n_concurrent": 3,
+    "minimal_pipeline": true
+  },
+  "files": [
+    "judge_results.json",
+    "judge_scores.csv",
+    "judge_summary.json",
+    "run_manifest.json"
+  ]
+}
