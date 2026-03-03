@@ -4,12 +4,13 @@ properties:
   title: "Add_toggle_test"
   content: "This is a test toggle"
 solution: |
+  import requests
+  import os
+  from dotenv import load_dotenv
+
+  load_dotenv()
+
   def add_toggle_to_page(page_id, title, content):
-      import requests
-      import os
-      from dotenv import load_dotenv
-      
-      load_dotenv()
       NOTION_TOKEN = os.getenv("NOTION_TOKEN")
       HEADERS = {
           "Authorization": f"Bearer {NOTION_TOKEN}",
