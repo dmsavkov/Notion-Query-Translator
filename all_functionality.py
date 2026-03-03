@@ -442,11 +442,7 @@ async def async_chat_wrapper(
     
     content = response.choices[0].message.content
     if json_output:
-        try:
-            json_content = extract_json_from_response(content)
-            return json_content
-        except ValueError:
-            return {}
+        content = extract_json_from_response(content)
     return content
 
 
