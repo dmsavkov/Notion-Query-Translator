@@ -125,3 +125,4 @@ temp/
 instructions/
 data/
 frameworks/
+.deepeval/
