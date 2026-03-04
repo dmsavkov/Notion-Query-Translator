@@ -7,7 +7,7 @@ import os
 import re
 import subprocess
 import sys
-from functools import partial
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -15,6 +15,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import openai
+from sentence_transformers import SentenceTransformer, util
 
 from config import (
     CONFIG,
@@ -45,8 +46,8 @@ setup()
 logger = logging.getLogger(__name__)
 
 eval_tasks = load_eval_tasks()
-storage = load_storage()
-corpora_vectorized = load_corpora_vectorized()
+storage = load_storage("vectors/storage_chonkie_recursive.pkl")
+corpora_vectorized = load_corpora_vectorized("vectors/corpora_vectorized_chonkie_recursive.pkl")
 
 
 def extract_json_from_response(response_content: Optional[str]) -> Dict[str, Any]:
@@ -122,12 +123,16 @@ def extract_json_from_response(response_content: Optional[str]) -> Dict[str, Any
 
 def _cosine_similarity(a: List[float], b: List[float]) -> float:
     """Cosine similarity between two vectors. O(D) where D = embedding dim."""
-    dot = sum(x * y for x, y in zip(a, b))
-    mag_a = math.sqrt(sum(x * x for x in a))
-    mag_b = math.sqrt(sum(y * y for y in b))
-    if mag_a == 0.0 or mag_b == 0.0:
+    if len(a) != len(b):
+        raise ValueError(f"Embedding dimension mismatch: query={len(a)}, node={len(b)}")
+
+    a_arr = np.asarray(a, dtype=np.float32)
+    b_arr = np.asarray(b, dtype=np.float32)
+
+    if np.linalg.norm(a_arr) == 0.0 or np.linalg.norm(b_arr) == 0.0:
         return 0.0
-    return dot / (mag_a * mag_b)
+
+    return float(util.cos_sim(a_arr, b_arr).item())
 
 async def search_vectors(
     nodes: List[TextNode],
@@ -176,12 +181,17 @@ async def search_vectors(
             continue
 
         node_meta = storage.get(node.id, {})
+        parent_id = node_meta.get("parent_id")
+        if parent_id is None:
+            raise ValueError(f"Node {node.id} is missing parent_id in storage metadata.")
+        
+        parent_text = storage[parent_id].get("text", "")
         results.append(SearchResult(
             node=node,
-            text=node_meta.get("text", ""),
+            text=parent_text,
             score=score,
             layer=node_meta.get("layer", -1),
-            parent_id=node_meta.get("parent_id"),
+            parent_id=parent_id,
         ))
 
     # Sort descending by score
@@ -448,19 +458,27 @@ async def async_chat_wrapper(
 
 def embed_text(text: str) -> List[float]:
     """
-    Embed text synchronously using Gemini embedding model.
+    Embed text synchronously using Sentence Transformers.
     
     Args:
-        text: Text to embed (single string or list of strings)
+        text: Text to embed.
         
     Returns:
         Embedding vector as a list of floats
     """
-    response = openai.embeddings.create(
-        model="gemini-embedding-001",
-        input=text
+    embedding = _get_sentence_transformer_model().encode(
+        text,
+        convert_to_numpy=True,
+        normalize_embeddings=True,
     )
-    return response.data[0].embedding
+    return embedding.tolist()
+
+
+@lru_cache(maxsize=1)
+def _get_sentence_transformer_model() -> SentenceTransformer:
+    model_name = os.getenv("SENTENCE_TRANSFORMER_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+    logger.info("Loading sentence-transformers model: %s", model_name)
+    return SentenceTransformer(model_name)
 
 
 # ── Step 1.5: Requirements Analysis ────────────────────────────────────────────────
