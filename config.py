@@ -118,14 +118,14 @@ def load_corpora_vectorized(path: str = "vectors/corpora_vectorized.pkl") -> Lis
         return pickle.load(f)
 
 
-def load_eval_tasks(evals_dir: str = "evals") -> Dict[str, str]:
+def load_eval_tasks(evals_dir: str = "evals") -> Dict[str, Dict[str, Any]]:
     """Load evaluation tasks from YAML files. Returns {} if directory not found."""
-    tasks: Dict[str, str] = {}
+    tasks: Dict[str, Dict[str, Any]] = {}
     for yaml_path in sorted(glob.glob(os.path.join(evals_dir, "*.yaml"))):
         stem = Path(yaml_path).stem
         with open(yaml_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        tasks[stem] = data.get("task", "")
+        tasks[stem] = data if data else {}
     return tasks
 
 
