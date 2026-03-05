@@ -425,7 +425,11 @@ async def async_chat_wrapper(
     json_output: bool = False,
     model_size: str = "gemma27",
 ) -> Any:
-    model_name = _MODEL_MAP.get(model_size, 'gemma-3-27b-it')
+    model_name = _MODEL_MAP.get(model_size)
+    if model_name is None:
+        model_name = model_size  
+        logger.warning(f"Model size '{model_size}' not found in map, using as-is: {model_name}")
+        
     msgs = list(messages)
     if json_output:
         if 'gemini' in model_name:
