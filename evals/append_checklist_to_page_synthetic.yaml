@@ -48,3 +48,11 @@ solution: |
 
   # Example usage:
   # append_checklist_to_page(os.getenv("NOTION_INBOX_PAGE_ID"), ["Read documentation", "Draft code", "Test API"])
+
+rag_eval_statements:
+  - "Endpoint is PATCH https://api.notion.com/v1/blocks/{page_id}/children for appending blocks to a page."
+  - "Header 'Notion-Version: 2022-06-28' is required on every request."
+  - "Checklist items are represented as blocks with 'type': 'to_do'."
+  - "To_do block structure: {'object': 'block', 'type': 'to_do', 'to_do': {'rich_text': [...], 'checked': false}}."
+  - "Multiple blocks can be sent in a single request as an array under the top-level 'children' key."
+  - "Rich text items use structure: [{'type': 'text', 'text': {'content': '<item_text>'}}]."

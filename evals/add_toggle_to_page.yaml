@@ -61,3 +61,11 @@ solution: |
 
   # Example usage:
   # add_toggle_to_page(os.getenv("NOTION_INBOX_PAGE_ID"), "Add_toggle_test", "This is a test toggle")
+
+rag_eval_statements:
+  - "Endpoint is PATCH https://api.notion.com/v1/blocks/{page_id}/children for appending blocks to a page."
+  - "Header 'Notion-Version: 2022-06-28' is required on every request."
+  - "Appended blocks are wrapped in a top-level 'children' array in the request body."
+  - "Toggle block requires 'type': 'toggle' and 'toggle' key containing 'rich_text' array for the title."
+  - "Rich text items use structure: [{'type': 'text', 'text': {'content': '<value>'}}]."
+  - "Nested content inside toggle is placed in 'children' array on toggle object, using 'type': 'paragraph'."
