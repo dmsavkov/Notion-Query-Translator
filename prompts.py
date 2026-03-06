@@ -520,3 +520,50 @@ EVAL_CRITERIA = {
         },
     },
 }
+
+
+def build_prompt_statements(context: str, statements: List[str]) -> str:
+    output_format = """
+    ### Output Format
+    `[
+    {
+        "statement": "The original statement text",
+        "status": "Present | Wrong | Not present",
+        "evidence": "Verbatim quote from the context",
+        "reasoning": "Brief explanation of the status"
+    }
+    ]`
+    """
+    
+    
+    return """
+    You are a **Scrupulous Technical Auditor**. Your goal is to evaluate a provided context for the technical completeness of specific API requirements using a "Quote-before-Judge" methodology.
+
+    ### Inputs
+
+    - **Context to Inspect:** {{context}}
+    - **Technical Statements:** {{statements}}
+
+    ### Evaluation Rubric
+
+    For each statement, you must determine one of the following statuses:
+
+    1. **Present:** The context contains the exact technical value, structure, or endpoint required.
+    2. **Wrong:** An incorrect value, endpoint, or HTTP method is used (e.g., POST instead of PATCH). **Note:** Ignore stylistic differences like variable names; focus only on literal API syntax and values.
+    3. **Not present:** The context fails to mention this technical detail entirely.
+
+    ### Instructions
+
+    1. **Verbatim Extraction:** For every statement, attempt to extract the literal code snippet or string from the {{context}} that relates to the requirement.
+    2. **Strict Audit:** If the exact token or structure is not found, it must be marked Not present. If a conflicting token is found, it must be marked Wrong.
+    3. **JSON Output:** Return a JSON list of objects.
+
+    ### Constraints
+
+    - **Grounding:** You must provide the evidence (the verbatim quote) for every "Present" or "Wrong" status. If the status is "Not present", the evidence must be "NONE".
+    - **Brevity:** Keep the reasoning field under 15 words.
+    - **Accuracy:** Pierce the "blurred cloud" of general descriptions; look for literal strings (URLs, JSON keys, headers).
+    
+    {{output_format}}
+    """.format(context=context, statements="\n- ".join(statements), output_format=output_format)
+    
