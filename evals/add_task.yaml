@@ -1,12 +1,12 @@
-task: Add a new task into my Notion Tasks database with the title "Add_task_test", date today, importance of 4 and projects such as "Agents & LLMs Specialization".
+task: Add a new task into my Notion Tasks database with the title "Add_task_test", date today, importance of 4 and project ID "31bcb17dcc4480dcb042f86e6a70bb70".
 properties:
   title: "Add_task_test"
   date: "today"
   importance: 4
-  projects: ["Agents & LLMs Specialization"]
+  project_id: "31bcb17dcc4480dcb042f86e6a70bb70"
 
 solution: |
-  def add_new_task(database_id, title, importance, projects):
+  def add_new_task(database_id, title, importance, project_id):
       import requests
       import os
       from datetime import datetime
@@ -53,8 +53,8 @@ solution: |
               "Project": {
                   "relation": [
                       {
-                          "id": project_id  # Map project names to their page IDs
-                      } for project_id in get_project_ids(projects)
+                          "id": project_id
+                      }
                   ]
               }
           }
@@ -64,4 +64,4 @@ solution: |
       return response.json()
 
   # Example usage:
-  # add_new_task(os.getenv("NOTION_TASKS_DATABASE_ID"), "Add_task_test", 4, ["Agents & LLMs Specialization"])
+  # add_new_task(os.getenv("NOTION_TASKS_DATABASE_ID"), "Add_task_test", 4, "31bcb17dcc4480dcb042f86e6a70bb70")
