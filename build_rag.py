@@ -138,6 +138,8 @@ def embed_and_upsert(storage: Dict[str, Dict[str, str]], cfg: RagBuildConfig) ->
     if parent_points:
         client.upsert(collection_name=cfg.parent_collection_name, points=parent_points)
         print(f"Upserted {len(parent_points)} parent points to '{cfg.parent_collection_name}' (minimal vectors)")
+        
+    client.close()
 
 
 if __name__ == "__main__":

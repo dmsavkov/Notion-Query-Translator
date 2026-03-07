@@ -7,7 +7,7 @@ from fastembed import TextEmbedding
 from qdrant_client import QdrantClient
 from qdrant_client import models as qmodels
 
-from .config import CONFIG, SearchResult, TextNode
+from .config import CONFIG, QDRANT_PATH, SearchResult, TextNode
 from .prompts import (
     build_cot_decompose_prompt,
     build_domain_decompose_prompt,
@@ -35,8 +35,11 @@ def build_qdrant_client(path: str) -> QdrantClient:
     return QdrantClient(path=path)
 
 
+# Global Qdrant client instance
+qdrant_client = build_qdrant_client(QDRANT_PATH)
+
+
 async def query_qdrant(
-    client: QdrantClient,
     query: str,
     collection_name: str = "notion_docs",
     top_k: int = 5,
@@ -44,7 +47,7 @@ async def query_qdrant(
 ) -> List[SearchResult]:
     """Search Qdrant and map scored points to SearchResult records."""
     query_vec = embed_text(query).tolist()
-    response = client.query_points(
+    response = qdrant_client.query_points(
         collection_name=collection_name,
         query=query_vec,
         limit=top_k,

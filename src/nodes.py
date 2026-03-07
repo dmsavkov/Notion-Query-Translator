@@ -15,7 +15,6 @@ from .all_functionality import (
     generate_request_plan,
     reflect_code,
     write_solution,
-    qdrant_client,
 )
 from .config import SearchResult
 from .rag_utils import (
@@ -36,7 +35,6 @@ async def retrieve_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     async def _search(query: str) -> List[SearchResult]:
         return await query_qdrant(
-            client=qdrant_client,
             query=query,
             collection_name="notion_docs_leaf",
             top_k=5,

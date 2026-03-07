@@ -35,7 +35,6 @@ from .prompts import (
 )
 from .rag_utils import (
     QueryEngineer,
-    build_qdrant_client,
     query_qdrant,
     search_multiple_queries,
     summarize_retrieval_results,
@@ -46,7 +45,6 @@ setup()
 logger = logging.getLogger(__name__)
 
 eval_tasks = load_eval_tasks()
-qdrant_client = build_qdrant_client(QDRANT_PATH)
 
 
 def extract_json_from_response(response_content: Optional[str]) -> Dict[str, Any]:
@@ -402,7 +400,6 @@ async def _reflect_search(query: str) -> str:
     Search Qdrant (top_k=1) for a single query and auto-summarize with a small model.
     """
     results = await query_qdrant(
-        client=qdrant_client,
         query=query,
         collection_name="notion_docs_leaf",
         top_k=1,
