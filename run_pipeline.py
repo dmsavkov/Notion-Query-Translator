@@ -48,6 +48,7 @@ class QueryTranslatorParams(BaseModel):
     top_k: int = 5
     top_k_total: int = 20
     query_method: Literal["multi_query", "cot_decompose", "domain_decompose"] = "domain_decompose"
+    use_summarization: bool = True
 
     model_config = ConfigDict(frozen=True)
 
