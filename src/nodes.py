@@ -93,6 +93,7 @@ async def codegen_node(state: Dict[str, Any], config: Optional[RunnableConfig] =
     cg_params = (config or {}).get("configurable", {}).get("agent_params", {}).get("code_generator", {})
     model_size: str = cg_params.get("model_name", "gemma27")
     temperature: float = cg_params.get("model_temperature", 0.3)
+    max_tokens: int = cg_params.get("max_tokens", 2500)
 
     feedback = state.get("feedback")
     code_result = await generate_code(
@@ -101,6 +102,7 @@ async def codegen_node(state: Dict[str, Any], config: Optional[RunnableConfig] =
         feedback=feedback,
         model_size=model_size,
         temperature=temperature,
+        max_tokens=max_tokens,
     )
     generated_code = code_result.get("code", "")
     function_name = code_result.get("function_name", "")
@@ -132,6 +134,7 @@ async def reflect_node(state: Dict[str, Any], config: Optional[RunnableConfig] =
     ref_params = (config or {}).get("configurable", {}).get("agent_params", {}).get("reflector", {})
     model_size: str = ref_params.get("model_name", "gemma27")
     temperature: float = ref_params.get("model_temperature", 0.2)
+    max_tokens: int = ref_params.get("max_tokens", 900)
 
     solution_run = state.get("solution_run") or {"exit_code": None, "stdout": "", "stderr": ""}
     test_results = {
@@ -150,6 +153,7 @@ async def reflect_node(state: Dict[str, Any], config: Optional[RunnableConfig] =
         reflection_context=reflection_context,
         model_size=model_size,
         temperature=temperature,
+        max_tokens=max_tokens,
     )
 
     trial = {
