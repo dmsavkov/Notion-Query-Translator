@@ -1,8 +1,10 @@
 # ── Utils ──────────────────────────────────────────────────────────────────────────────
 import asyncio
+import glob
 import json
 import logging
 import os
+from pathlib import Path
 import re
 import subprocess
 import sys
@@ -13,14 +15,10 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import openai
+import yaml
 
 from .config import (
-    CONFIG,
     _MODEL_MAP,
-    QDRANT_PATH,
-    SearchResult,
-    setup,
-    load_eval_tasks,
 )
 from .prompts import (
     EVAL_CRITERIA,
@@ -34,16 +32,21 @@ from .prompts import (
     build_reflect_code_prompt,
 )
 from .rag_utils import (
-    QueryEngineer,
     query_qdrant,
-    search_multiple_queries,
-    summarize_retrieval_results,
 )
 
 logger = logging.getLogger(__name__)
 
-eval_tasks = load_eval_tasks()
 
+def load_eval_tasks(evals_dir: str = "evals") -> Dict[str, Dict[str, Any]]:
+    """Load evaluation tasks from YAML files. Returns {} if directory not found."""
+    tasks: Dict[str, Dict[str, Any]] = {}
+    for yaml_path in sorted(glob.glob(os.path.join(evals_dir, "*.yaml"))):
+        stem = Path(yaml_path).stem
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        tasks[stem] = data if data else {}
+    return tasks
 
 def extract_json_from_response(response_content: Optional[str]) -> Dict[str, Any]:
     """

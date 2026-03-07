@@ -13,7 +13,7 @@ from src.nodes import (
     reflect_node,
     retrieve_node,
 )
-from src.config import load_eval_tasks
+from src.all_functionality import load_eval_tasks
 
 
 def generate_thread_id(prefix: Optional[str] = None) -> str:

@@ -108,47 +108,6 @@ def build_logger() -> None:
     )
 
 
-# ── Data Loaders ───────────────────────────────────────────────────────────────
-
-def load_storage(path: str = "vectors/storage.pkl") -> Dict[str, Any]:
-    # TODO: delete after all callers migrate to Qdrant-backed storage.
-    """Load hierarchical chunk storage from pickle."""
-    resolved_path = Path(path)
-    if not resolved_path.exists() or not resolved_path.is_file():
-        raise FileNotFoundError(f"Vector storage file not found: {resolved_path.resolve()}")
-    with open(resolved_path, "rb") as f:
-        return pickle.load(f)
-
-
-def load_corpora_vectorized(path: str = "vectors/corpora_vectorized.pkl") -> List:
-    # TODO: delete after all callers migrate to Qdrant-backed storage.
-    """Load vectorized leaf nodes from pickle."""
-    resolved_path = Path(path)
-    if not resolved_path.exists() or not resolved_path.is_file():
-        raise FileNotFoundError(f"Vectorized corpora file not found: {resolved_path.resolve()}")
-    with open(resolved_path, "rb") as f:
-        return pickle.load(f)
-
-
-def load_eval_tasks(evals_dir: str = "evals") -> Dict[str, Dict[str, Any]]:
-    """Load evaluation tasks from YAML files. Returns {} if directory not found."""
-    tasks: Dict[str, Dict[str, Any]] = {}
-    for yaml_path in sorted(glob.glob(os.path.join(evals_dir, "*.yaml"))):
-        stem = Path(yaml_path).stem
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        tasks[stem] = data if data else {}
-    return tasks
-
-
-def load_corpora_text(path: str = "corpora.txt") -> str:
-    """Load raw corpora text from file. Returns '' if not found."""
-    if not os.path.exists(path):
-        return ""
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
-
-
 # ── Setup Function ─────────────────────────────────────────────────────────────
 
 def setup() -> None:
