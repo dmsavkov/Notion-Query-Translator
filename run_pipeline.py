@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import asdict
 from typing import Any, Dict, List, Optional, TypedDict, cast
 import datetime
 
@@ -7,6 +8,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import END, StateGraph
 from langchain_core.runnables import RunnableConfig
 
+from build_rag import RagBuildConfig
 from src.nodes import (
     codegen_node,
     execute_node,
@@ -128,6 +130,7 @@ async def main() -> Dict[str, Dict[str, Any]]:
     pipeline_params = PipelineParams()
     static_params = StaticParams()
     agent_params = AgentParams()
+    rag_build_config = RagBuildConfig()
     
     eval_tasks = load_eval_tasks(static_params.evals_dir)
     
@@ -168,6 +171,7 @@ async def main() -> Dict[str, Dict[str, Any]]:
                             "pipeline_params": pipeline_params.model_dump(),
                             "static_params": static_params.model_dump(),
                             "agent_params": agent_params.model_dump(),
+                            "build_rag": asdict(rag_build_config),
                         }
                     },
                 )
