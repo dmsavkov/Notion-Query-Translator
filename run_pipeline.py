@@ -159,24 +159,28 @@ async def main() -> Dict[str, Dict[str, Any]]:
                 "passed": False,
             }
 
-            final_state = await pipeline.ainvoke(
-                initial_state,
-                config={
-                    "configurable": {
-                        "thread_id": generate_thread_id(prefix=task_id),
-                        "pipeline_params": pipeline_params.model_dump(),
-                        "static_params": static_params.model_dump(),
-                        "agent_params": agent_params.model_dump(),
-                    }
-                },
-            )
-            passed = bool(final_state.get("passed", False))
-            results[task_id] = {
-                "passed": passed,
-                "final_code": final_state.get("final_code", ""),
-                "trials": final_state.get("trials", []),
-            }
-            print(f"{task_id}: {'PASS' if passed else 'FAIL'}")
+            try: 
+                final_state = await pipeline.ainvoke(
+                    initial_state,
+                    config={
+                        "configurable": {
+                            "thread_id": generate_thread_id(prefix=task_id),
+                            "pipeline_params": pipeline_params.model_dump(),
+                            "static_params": static_params.model_dump(),
+                            "agent_params": agent_params.model_dump(),
+                        }
+                    },
+                )
+                passed = bool(final_state.get("passed", False))
+                results[task_id] = {
+                    "passed": passed,
+                    "final_code": final_state.get("final_code", ""),
+                    "trials": final_state.get("trials", []),
+                }
+                print(f"{task_id}: {'PASS' if passed else 'FAIL'}")
+            except Exception as e:
+                print("Exception occured. ")
+                print(e)
 
         return results
 
