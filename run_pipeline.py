@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, TypedDict, cast
 import datetime
 
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import END, StateGraph
 
 from src.nodes import (
@@ -27,6 +27,7 @@ class RunConfig:
     max_trials: int = 3
     minimal: bool = True
     output_dir: str = "evaluation_results"
+    sqlite_saver_path = "data/checkpoints.sqlite"
 
 
 class PipelineState(TypedDict):
@@ -77,54 +78,56 @@ def build_pipeline():
     graph.add_edge("execute", "reflect")
     graph.add_conditional_edges("reflect", route_after_reflect)
 
-    return graph.compile(checkpointer=MemorySaver())
+    return graph
 
 
 async def main(cfg: RunConfig) -> Dict[str, Dict[str, Any]]:
     eval_tasks = load_eval_tasks(cfg.evals_dir)
-    pipeline = build_pipeline()
+    
+    async with AsyncSqliteSaver.from_conn_string(cfg.sqlite_saver_path) as checkpointer:
+        pipeline = build_pipeline().compile(checkpointer=checkpointer)
 
-    results: Dict[str, Dict[str, Any]] = {}
-    for task_id, task_data in eval_tasks.items():
-        prompt = (
-            task_data.get("query")
-            or task_data.get("user_prompt")
-            or task_data.get("task")
-            or ""
-        )
-        initial_state: PipelineState = {
-            "user_prompt": prompt,
-            "max_trials": cfg.max_trials,
-            "minimal": cfg.minimal,
-            "retrieval_context": "",
-            "request_plan": "",
-            "general_info": "",
-            "trial_num": 0,
-            "generated_code": "",
-            "function_name": "",
-            "solution_run": {},
-            "reflection_context": [],
-            "feedback": "",
-            "verdict": {},
-            "trials": [],
-            "final_code": "",
-            "passed": False,
-        }
+        results: Dict[str, Dict[str, Any]] = {}
+        for task_id, task_data in eval_tasks.items():
+            prompt = (
+                task_data.get("query")
+                or task_data.get("user_prompt")
+                or task_data.get("task")
+                or ""
+            )
+            initial_state: PipelineState = {
+                "user_prompt": prompt,
+                "max_trials": cfg.max_trials,
+                "minimal": cfg.minimal,
+                "retrieval_context": "",
+                "request_plan": "",
+                "general_info": "",
+                "trial_num": 0,
+                "generated_code": "",
+                "function_name": "",
+                "solution_run": {},
+                "reflection_context": [],
+                "feedback": "",
+                "verdict": {},
+                "trials": [],
+                "final_code": "",
+                "passed": False,
+            }
 
-        final_state = await pipeline.ainvoke(
-            initial_state,
-            config={"configurable": {"thread_id": generate_thread_id(prefix=task_id)}},
-        )
-        passed = bool(final_state.get("passed", False))
-        results[task_id] = {
-            "passed": passed,
-            "final_code": final_state.get("final_code", ""),
-            "trials": final_state.get("trials", []),
-        }
-        print(f"{task_id}: {'PASS' if passed else 'FAIL'}")
-        break
+            final_state = await pipeline.ainvoke(
+                initial_state,
+                config={"configurable": {"thread_id": generate_thread_id(prefix=task_id)}},
+            )
+            passed = bool(final_state.get("passed", False))
+            results[task_id] = {
+                "passed": passed,
+                "final_code": final_state.get("final_code", ""),
+                "trials": final_state.get("trials", []),
+            }
+            print(f"{task_id}: {'PASS' if passed else 'FAIL'}")
+            break
 
-    return results
+        return results
 
 
 if __name__ == "__main__":
