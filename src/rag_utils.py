@@ -203,7 +203,7 @@ async def search_multiple_queries(
         for rank, r in enumerate(consolidated, start=1)
     ]
     logger.info(
-        "search_multiple_queries | queries=%s | total_raw=%d | consolidated=%d\n%s",
+        "search_multiple_queries | queries=%s | total_raw=%d | consolidated=%d",
         len(queries),
         len(all_results),
         len(consolidated),
