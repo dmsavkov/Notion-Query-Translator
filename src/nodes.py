@@ -34,6 +34,7 @@ async def retrieve_node(state: Dict[str, Any], config: Optional[RunnableConfig] 
     qt_params = (config or {}).get("configurable", {}).get("agent_params", {}).get("query_translator", {})
     top_k: int = qt_params.get("top_k", 5)
     top_k_total: int = qt_params.get("top_k_total", 20)
+    use_summarization: bool = qt_params.get("use_summarization", True)
 
     engineer = QueryEngineer(chat_fn=async_chat_wrapper)
     decomposed = await engineer.domain_decompose(user_prompt)
@@ -49,7 +50,12 @@ async def retrieve_node(state: Dict[str, Any], config: Optional[RunnableConfig] 
 
     results = await search_multiple_queries(queries=queries, search_fn=_search)
     results = results[:top_k_total]
-    retrieval_context = await summarize_retrieval_results(results, chat_fn=async_chat_wrapper)
+    
+    if use_summarization:
+        retrieval_context = await summarize_retrieval_results(results, chat_fn=async_chat_wrapper)
+    else:
+        retrieval_context = "\n\n".join(r.text for r in results)
+        
     return {"retrieval_context": retrieval_context}
 
 
