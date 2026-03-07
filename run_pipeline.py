@@ -1,10 +1,11 @@
 import asyncio
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, TypedDict, cast
 import datetime
 
+from pydantic import BaseModel, ConfigDict
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import END, StateGraph
+from langchain_core.runnables import RunnableConfig
 
 from src.nodes import (
     codegen_node,
@@ -21,19 +22,26 @@ def generate_thread_id(prefix: Optional[str] = None) -> str:
     unique_id = f"{prefix}_{right_now}" if prefix else right_now
     return unique_id
 
-@dataclass
-class RunConfig:
-    evals_dir: str = "evals"
-    max_trials: int = 3
+
+class PipelineParams(BaseModel):
+    """Dynamic parameters used during pipeline execution."""
     minimal: bool = True
+    max_trials: int = 3
+    
+    model_config = ConfigDict(frozen=True)
+
+
+class StaticParams(BaseModel):
+    """Static parameters for pipeline initialization."""
+    evals_dir: str = "evals"
     output_dir: str = "evaluation_results"
-    sqlite_saver_path = "data/checkpoints.sqlite"
+    sqlite_saver_path: str = "data/checkpoints.sqlite"
+    
+    model_config = ConfigDict(frozen=True)
 
 
 class PipelineState(TypedDict):
     user_prompt: str
-    max_trials: int
-    minimal: bool
     retrieval_context: str
     request_plan: str
     general_info: str
@@ -49,22 +57,25 @@ class PipelineState(TypedDict):
     passed: bool
 
 
-def route_after_codegen(state: PipelineState) -> str:
-    if state.get("minimal", False):
+def route_after_codegen(state: PipelineState, config: Optional[RunnableConfig] = None) -> str:
+    minimal = config.get("configurable", {}).get("pipeline_params", {}).get("minimal", False) if config else False
+    if minimal:
         return END
     return "execute"
 
 
-def route_after_reflect(state: PipelineState) -> str:
+def route_after_reflect(state: PipelineState, config: Optional[RunnableConfig] = None) -> str:
     if state.get("passed", False):
         return END
-    if state.get("trial_num", 0) >= state.get("max_trials", 1):
+    max_trials = config.get("configurable", {}).get("pipeline_params", {}).get("max_trials", 1) if config else 1
+    if state.get("trial_num", 0) >= max_trials:
         return END
     return "codegen"
 
 
 def build_pipeline():
     graph = StateGraph(PipelineState)
+    # All nodes receive (state, config) parameters from LangGraph
     graph.add_node("retrieve", cast(Any, retrieve_node))
     graph.add_node("plan", cast(Any, plan_node))
     graph.add_node("codegen", cast(Any, codegen_node))
@@ -81,10 +92,13 @@ def build_pipeline():
     return graph
 
 
-async def main(cfg: RunConfig) -> Dict[str, Dict[str, Any]]:
-    eval_tasks = load_eval_tasks(cfg.evals_dir)
+async def main() -> Dict[str, Dict[str, Any]]:
+    pipeline_params = PipelineParams()
+    static_params = StaticParams()
     
-    async with AsyncSqliteSaver.from_conn_string(cfg.sqlite_saver_path) as checkpointer:
+    eval_tasks = load_eval_tasks(static_params.evals_dir)
+    
+    async with AsyncSqliteSaver.from_conn_string(static_params.sqlite_saver_path) as checkpointer:
         pipeline = build_pipeline().compile(checkpointer=checkpointer)
 
         results: Dict[str, Dict[str, Any]] = {}
@@ -97,8 +111,6 @@ async def main(cfg: RunConfig) -> Dict[str, Dict[str, Any]]:
             )
             initial_state: PipelineState = {
                 "user_prompt": prompt,
-                "max_trials": cfg.max_trials,
-                "minimal": cfg.minimal,
                 "retrieval_context": "",
                 "request_plan": "",
                 "general_info": "",
@@ -116,7 +128,13 @@ async def main(cfg: RunConfig) -> Dict[str, Dict[str, Any]]:
 
             final_state = await pipeline.ainvoke(
                 initial_state,
-                config={"configurable": {"thread_id": generate_thread_id(prefix=task_id)}},
+                config={
+                    "configurable": {
+                        "thread_id": generate_thread_id(prefix=task_id),
+                        "pipeline_params": pipeline_params.model_dump(),
+                        "static_params": static_params.model_dump(),
+                    }
+                },
             )
             passed = bool(final_state.get("passed", False))
             results[task_id] = {
@@ -131,4 +149,4 @@ async def main(cfg: RunConfig) -> Dict[str, Dict[str, Any]]:
 
 
 if __name__ == "__main__":
-    asyncio.run(main(RunConfig()))
+    asyncio.run(main())

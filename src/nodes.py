@@ -6,7 +6,9 @@ These nodes handle retrieval, planning, code generation, execution, and reflecti
 
 import subprocess
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+
+from langchain_core.runnables import RunnableConfig
 
 from .all_functionality import (
     async_chat_wrapper,
@@ -27,7 +29,7 @@ from .rag_utils import (
 
 # ── LangGraph Node Wrappers ───────────────────────────────────────────────────────────
 
-async def retrieve_node(state: Dict[str, Any]) -> Dict[str, Any]:
+async def retrieve_node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     user_prompt = state["user_prompt"]
     engineer = QueryEngineer(chat_fn=async_chat_wrapper)
     decomposed = await engineer.domain_decompose(user_prompt)
@@ -46,13 +48,13 @@ async def retrieve_node(state: Dict[str, Any]) -> Dict[str, Any]:
     return {"retrieval_context": retrieval_context}
 
 
-async def plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
+async def plan_node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     request_plan = await generate_request_plan(state["user_prompt"], state["retrieval_context"])
     general_info = build_general_info(state["user_prompt"], state["retrieval_context"], request_plan)
     return {"request_plan": request_plan, "general_info": general_info}
 
 
-async def codegen_node(state: Dict[str, Any]) -> Dict[str, Any]:
+async def codegen_node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     feedback = state.get("feedback")
     code_result = await generate_code(
         general_info=state["general_info"],
@@ -69,7 +71,7 @@ async def codegen_node(state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def execute_node(state: Dict[str, Any]) -> Dict[str, Any]:
+async def execute_node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     sol_run = subprocess.run(
         [sys.executable, "solution.py"],
         capture_output=True,
@@ -85,7 +87,7 @@ async def execute_node(state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def reflect_node(state: Dict[str, Any]) -> Dict[str, Any]:
+async def reflect_node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     solution_run = state.get("solution_run") or {"exit_code": None, "stdout": "", "stderr": ""}
     test_results = {
         "exit_code": solution_run["exit_code"],
