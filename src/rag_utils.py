@@ -41,7 +41,7 @@ qdrant_client = build_qdrant_client(QDRANT_PATH)
 
 async def query_qdrant(
     query: str,
-    collection_name: str = "notion_docs",
+    collection_name: str = "notion_docs_leaf",
     top_k: int = 5,
     threshold: Optional[float] = None,
 ) -> List[SearchResult]:
