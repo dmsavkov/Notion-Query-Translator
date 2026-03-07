@@ -23,11 +23,43 @@ def generate_thread_id(prefix: Optional[str] = None) -> str:
     return unique_id
 
 
+class CodeGeneratorParams(BaseModel):
+    model_name: str = "gemma27"
+    model_temperature: float = 0.3
+
+    model_config = ConfigDict(frozen=True)
+
+
+class ReflectorParams(BaseModel):
+    model_name: str = "gemma27"
+    model_temperature: float = 0.2
+
+    model_config = ConfigDict(frozen=True)
+
+
+class QueryTranslatorParams(BaseModel):
+    model_name: str = "gemma27"
+    model_temperature: float = 0.3
+    top_k: int = 5
+    top_k_total: int = 20
+
+    model_config = ConfigDict(frozen=True)
+
+
+class AgentParams(BaseModel):
+    """Per-node model and retrieval settings."""
+    code_generator: CodeGeneratorParams = CodeGeneratorParams()
+    reflector: ReflectorParams = ReflectorParams()
+    query_translator: QueryTranslatorParams = QueryTranslatorParams()
+
+    model_config = ConfigDict(frozen=True)
+
+
 class PipelineParams(BaseModel):
     """Dynamic parameters used during pipeline execution."""
     minimal: bool = True
     max_trials: int = 3
-    
+
     model_config = ConfigDict(frozen=True)
 
 
@@ -95,6 +127,7 @@ def build_pipeline():
 async def main() -> Dict[str, Dict[str, Any]]:
     pipeline_params = PipelineParams()
     static_params = StaticParams()
+    agent_params = AgentParams()
     
     eval_tasks = load_eval_tasks(static_params.evals_dir)
     
@@ -133,6 +166,7 @@ async def main() -> Dict[str, Dict[str, Any]]:
                         "thread_id": generate_thread_id(prefix=task_id),
                         "pipeline_params": pipeline_params.model_dump(),
                         "static_params": static_params.model_dump(),
+                        "agent_params": agent_params.model_dump(),
                     }
                 },
             )
@@ -143,7 +177,6 @@ async def main() -> Dict[str, Dict[str, Any]]:
                 "trials": final_state.get("trials", []),
             }
             print(f"{task_id}: {'PASS' if passed else 'FAIL'}")
-            break
 
         return results
 

@@ -31,6 +31,10 @@ from .rag_utils import (
 
 async def retrieve_node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
     user_prompt = state["user_prompt"]
+    qt_params = (config or {}).get("configurable", {}).get("agent_params", {}).get("query_translator", {})
+    top_k: int = qt_params.get("top_k", 5)
+    top_k_total: int = qt_params.get("top_k_total", 20)
+
     engineer = QueryEngineer(chat_fn=async_chat_wrapper)
     decomposed = await engineer.domain_decompose(user_prompt)
     queries = [user_prompt] + decomposed
@@ -39,11 +43,12 @@ async def retrieve_node(state: Dict[str, Any], config: Optional[RunnableConfig] 
         return await query_qdrant(
             query=query,
             collection_name="notion_docs_leaf",
-            top_k=5,
+            top_k=top_k,
             threshold=0.2,
         )
 
     results = await search_multiple_queries(queries=queries, search_fn=_search)
+    results = results[:top_k_total]
     retrieval_context = await summarize_retrieval_results(results, chat_fn=async_chat_wrapper)
     return {"retrieval_context": retrieval_context}
 
@@ -55,11 +60,17 @@ async def plan_node(state: Dict[str, Any], config: Optional[RunnableConfig] = No
 
 
 async def codegen_node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
+    cg_params = (config or {}).get("configurable", {}).get("agent_params", {}).get("code_generator", {})
+    model_size: str = cg_params.get("model_name", "gemma27")
+    temperature: float = cg_params.get("model_temperature", 0.3)
+
     feedback = state.get("feedback")
     code_result = await generate_code(
         general_info=state["general_info"],
         test_code="No tests are used.",
         feedback=feedback,
+        model_size=model_size,
+        temperature=temperature,
     )
     generated_code = code_result.get("code", "")
     function_name = code_result.get("function_name", "")
@@ -88,6 +99,10 @@ async def execute_node(state: Dict[str, Any], config: Optional[RunnableConfig] =
 
 
 async def reflect_node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
+    ref_params = (config or {}).get("configurable", {}).get("agent_params", {}).get("reflector", {})
+    model_size: str = ref_params.get("model_name", "gemma27")
+    temperature: float = ref_params.get("model_temperature", 0.2)
+
     solution_run = state.get("solution_run") or {"exit_code": None, "stdout": "", "stderr": ""}
     test_results = {
         "exit_code": solution_run["exit_code"],
@@ -103,6 +118,8 @@ async def reflect_node(state: Dict[str, Any], config: Optional[RunnableConfig] =
         test_results=test_results,
         solution_run=solution_run,
         reflection_context=reflection_context,
+        model_size=model_size,
+        temperature=temperature,
     )
 
     trial = {

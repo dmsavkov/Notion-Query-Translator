@@ -318,6 +318,8 @@ async def generate_code(
     general_info: str,
     test_code: str,
     feedback: Optional[str] = None,
+    model_size: str = "gemma27",
+    temperature: float = 0.3,
 ) -> Dict[str, str]:
     """
     Generate the solution code.
@@ -326,6 +328,8 @@ async def generate_code(
         general_info: Assembled context from step 3.
         test_code:    The tests the code must pass (from step 4).
         feedback:     Optional judge feedback from a previous failed attempt.
+        model_size:   Model alias key from _MODEL_MAP.
+        temperature:  Sampling temperature.
 
     Returns:
         {"code": "...", "function_name": "..."}
@@ -338,7 +342,7 @@ async def generate_code(
 
     result: Dict = await async_chat_wrapper(
         [{"role": "user", "content": prompt}],
-        json_output=True, max_tokens=2500, temperature=0.3, model_size="gemma27",
+        json_output=True, max_tokens=2500, temperature=temperature, model_size=model_size,
     )
     return result
 
@@ -448,6 +452,8 @@ async def reflect_code(
     test_results: Dict[str, Any],
     solution_run: Optional[Dict[str, Any]] = None,
     reflection_context: Optional[List[str]] = None,
+    model_size: str = "gemma27",
+    temperature: float = 0.2,
 ) -> Dict[str, Any]:
     """
     LLM reflection step that diagnoses failures and gives repair guidance.
@@ -513,7 +519,7 @@ async def reflect_code(
 
     return await async_chat_wrapper(
         [{"role": "user", "content": prompt}],
-        json_output=True, max_tokens=900, temperature=0.2, model_size="gemma27",
+        json_output=True, max_tokens=900, temperature=temperature, model_size=model_size,
     )
 
 
