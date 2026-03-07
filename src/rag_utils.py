@@ -44,8 +44,14 @@ async def query_qdrant(
     collection_name: str = "notion_docs_leaf",
     top_k: int = 5,
     threshold: Optional[float] = None,
+    parent_collection_name: str = "notion_docs_parent",
+    use_parent_texts: bool = True,
 ) -> List[SearchResult]:
-    """Search Qdrant and map scored points to SearchResult records."""
+    """Search Qdrant and map scored points to SearchResult records.
+    
+    If use_parent_texts is True, retrieves parent text from parent_collection_name
+    and replaces the leaf text with the parent text.
+    """
     query_vec = embed_text(query).tolist()
     response = qdrant_client.query_points(
         collection_name=collection_name,
@@ -64,6 +70,24 @@ async def query_qdrant(
         text = str(payload.get("text") or "")
         parent_id = payload.get("parent_id")
         layer = int(payload.get("layer") or 1)
+
+        # If use_parent_texts and parent_id exists, retrieve parent text
+        if use_parent_texts and parent_id is not None:
+            try:
+                parent_points = qdrant_client.retrieve(
+                    collection_name=parent_collection_name,
+                    ids=[parent_id],
+                    with_payload=True,
+                )
+                if parent_points:
+                    parent_payload = parent_points[0].payload or {}
+                    text = str(parent_payload.get("text") or text)
+            except Exception as e:
+                logger.warning(
+                    "Failed to retrieve parent text for parent_id=%s: %s",
+                    parent_id,
+                    e,
+                )
 
         results.append(
             SearchResult(
