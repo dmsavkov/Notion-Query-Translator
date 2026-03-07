@@ -40,8 +40,6 @@ from .rag_utils import (
     summarize_retrieval_results,
 )
 
-setup()
-
 logger = logging.getLogger(__name__)
 
 eval_tasks = load_eval_tasks()

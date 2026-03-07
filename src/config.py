@@ -162,3 +162,4 @@ def setup() -> None:
     if missing:
         raise EnvironmentError(f"Missing required environment variables: {missing}")
 
+setup()
