@@ -6,7 +6,7 @@ These nodes handle retrieval, planning, code generation, execution, and reflecti
 
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from langchain_core.runnables import RunnableConfig
 
@@ -27,6 +27,30 @@ from .rag_utils import (
 )
 
 
+# ── Query Helper Functions ────────────────────────────────────────────────────────────
+
+async def _create_queries(
+    query_method: Literal["multi_query", "cot_decompose", "domain_decompose"],
+    engineer: QueryEngineer,
+    query: str,
+) -> List[str]:
+    """Build a list of queries based on the selected query method."""
+    additional_queries: List[str] = []
+    
+    if query_method == "multi_query":
+        additional_queries = await engineer.multi_query(query)
+    elif query_method == "cot_decompose":
+        additional_queries = await engineer.cot_decompose(query)
+    elif query_method == "domain_decompose":
+        additional_queries = await engineer.domain_decompose(query)
+    else:
+        # Fallback
+        additional_queries = await engineer.cot_decompose(query)
+    
+    queries = additional_queries + [query]
+    return queries
+
+
 # ── LangGraph Node Wrappers ───────────────────────────────────────────────────────────
 
 async def retrieve_node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
@@ -35,10 +59,10 @@ async def retrieve_node(state: Dict[str, Any], config: Optional[RunnableConfig] 
     top_k: int = qt_params.get("top_k", 5)
     top_k_total: int = qt_params.get("top_k_total", 20)
     use_summarization: bool = qt_params.get("use_summarization", True)
+    query_method: str = qt_params.get("query_method", "domain_decompose")
 
     engineer = QueryEngineer(chat_fn=async_chat_wrapper)
-    decomposed = await engineer.domain_decompose(user_prompt)
-    queries = [user_prompt] + decomposed
+    queries = await _create_queries(query_method, engineer, user_prompt)
 
     async def _search(query: str) -> List[SearchResult]:
         return await query_qdrant(

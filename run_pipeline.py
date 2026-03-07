@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import asdict
-from typing import Any, Dict, List, Optional, TypedDict, cast
+from typing import Any, Dict, List, Literal, Optional, TypedDict, cast
 import datetime
 
 from pydantic import BaseModel, ConfigDict
@@ -44,6 +44,7 @@ class QueryTranslatorParams(BaseModel):
     model_temperature: float = 0.3
     top_k: int = 5
     top_k_total: int = 20
+    query_method: Literal["multi_query", "cot_decompose", "domain_decompose"] = "domain_decompose"
 
     model_config = ConfigDict(frozen=True)
 
