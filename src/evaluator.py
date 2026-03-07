@@ -16,8 +16,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from all_functionality import async_chat_wrapper
-from prompts import build_prompt_statements
+from .all_functionality import async_chat_wrapper
+from .prompts import build_prompt_statements
 
 logger = logging.getLogger(__name__)
 

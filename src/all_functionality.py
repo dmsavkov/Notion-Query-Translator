@@ -2,43 +2,43 @@
 import asyncio
 import json
 import logging
-import math
 import os
 import re
 import subprocess
 import sys
-from functools import lru_cache, partial
-from pathlib import Path
+from functools import partial
 from typing import Any, Dict, List, Optional
 
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import openai
-from sentence_transformers import SentenceTransformer, util
 
-from config import (
+from .config import (
     CONFIG,
+    _MODEL_MAP,
+    QDRANT_PATH,
     SearchResult,
-    TextNode,
     setup,
     load_eval_tasks,
-    load_storage,
-    load_corpora_vectorized,
 )
-from prompts import (
+from .prompts import (
     EVAL_CRITERIA,
     build_analyze_requirements_prompt,
-    build_cot_decompose_prompt,
-    build_domain_decompose_prompt,
     build_generate_code_prompt,
     build_generate_request_plan_prompt,
     build_generate_tests_draft_prompt,
     build_generate_tests_grade_prompt,
     build_judge_category_prompt,
-    build_multi_query_prompt,
     build_preflect_prompt,
     build_reflect_code_prompt,
+)
+from .rag_utils import (
+    QueryEngineer,
+    build_qdrant_client,
+    query_qdrant,
+    search_multiple_queries,
+    summarize_retrieval_results,
 )
 
 setup()
@@ -46,8 +46,7 @@ setup()
 logger = logging.getLogger(__name__)
 
 eval_tasks = load_eval_tasks()
-storage = load_storage("vectors/storage_chonkie_recursive.pkl")
-corpora_vectorized = load_corpora_vectorized("vectors/corpora_vectorized_chonkie_recursive.pkl")
+qdrant_client = build_qdrant_client(QDRANT_PATH)
 
 
 def extract_json_from_response(response_content: Optional[str]) -> Dict[str, Any]:
@@ -119,283 +118,6 @@ def extract_json_from_response(response_content: Optional[str]) -> Dict[str, Any
 
 
 
-# ── Search Vectors ──────────────────────────────────────────────────────────────
-
-def _cosine_similarity(a: List[float], b: List[float]) -> float:
-    """Cosine similarity between two vectors. O(D) where D = embedding dim."""
-    if len(a) != len(b):
-        raise ValueError(f"Embedding dimension mismatch: query={len(a)}, node={len(b)}")
-
-    a_arr = np.asarray(a, dtype=np.float32)
-    b_arr = np.asarray(b, dtype=np.float32)
-
-    if np.linalg.norm(a_arr) == 0.0 or np.linalg.norm(b_arr) == 0.0:
-        return 0.0
-
-    return float(util.cos_sim(a_arr, b_arr).item())
-
-async def search_vectors(
-    nodes: List[TextNode],
-    storage: Dict[str, Dict[str, Any]],
-    query: str,
-    top_k: Optional[int] = None,
-    threshold: Optional[float] = None,
-) -> List[SearchResult]:
-    """
-    Retrieve the most relevant chunks for a query using cosine similarity.
-
-    Embeds the query string once, then performs an O(N) linear scan over all
-    leaf nodes. Returns results sorted by descending score, filtered by either
-    top_k or a minimum similarity threshold (or both — threshold applied first,
-    then top_k cap).
-
-    Args:
-        nodes:      List of TextNode leaf objects (with embeddings).
-        storage:    Storage dict from process_corpora_to_hierarchy.
-        query:      Plain-text search query.
-        top_k:      Maximum number of results to return (None = use default 5).
-        threshold:  Minimum cosine similarity to include (None = no filter).
-
-    Returns:
-        List of SearchResult dataclasses sorted by score descending.
-    """
-    # Apply defaults if not provided
-    if top_k is None:
-        top_k = 5
-    if threshold is None:
-        threshold = None
-    
-    # Embed the query using the embedding wrapper
-    query_vec: List[float] = embed_text(query)
-
-    results: List[SearchResult] = []
-
-    for node in nodes:
-        if not node.embedding:
-            continue
-
-        score = _cosine_similarity(query_vec, node.embedding)
-
-        # Threshold gate
-        if threshold is not None and score < threshold:
-            continue
-
-        node_meta = storage.get(node.id, {})
-        parent_id = node_meta.get("parent_id")
-        if parent_id is None:
-            raise ValueError(f"Node {node.id} is missing parent_id in storage metadata.")
-        
-        parent_text = storage[parent_id].get("text", "")
-        results.append(SearchResult(
-            node=node,
-            text=parent_text,
-            score=score,
-            layer=node_meta.get("layer", -1),
-            parent_id=parent_id,
-        ))
-
-    # Sort descending by score
-    results.sort(key=lambda r: r.score, reverse=True)
-
-    if top_k is not None:
-        results = results[:top_k]
-
-    return results
-
-async def summarize_retrieval_results(results: list[SearchResult]) -> str:
-    """Summarize retrieved chunks with bullet points for coding guidance."""
-    concatenated_retrieval = "".join([r.text for r in results])
-    summary = await async_chat_wrapper(
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    "Summarize the following retrieved context in concise bullet points to guide coding:\n\n"
-                    f"{concatenated_retrieval}"
-                ),
-            }
-        ],
-        max_tokens=1500,
-    )
-    return summary
-
-
-# ── Query Engineer ──────────────────────────────────────────────────────────────
-
-class QueryEngineer:
-    """
-    Query-engineering helpers with configurable model and temperature.
-
-    All methods are async and use async_chat_wrapper with the model and temperature
-    specified at instantiation time.
-    """
-
-    def __init__(
-        self,
-        temperature: Optional[float] = None,
-        model_size: Optional[str] = None,
-    ):
-        """
-        Initialize the QueryEngineer with default temperature and model.
-
-        Args:
-            temperature: Sampling temperature for all methods (None = use CONFIG default).
-            model_size:  Model size for all methods (None = use CONFIG default).
-        """
-        self.temperature = temperature if temperature is not None else CONFIG.query_engineer_temperature
-        self.model_size = model_size if model_size is not None else CONFIG.default_model
-
-    # ── 1. Multi-Query ─────────────────────────────────────────────────────
-    async def multi_query(
-        self,
-        query: str,
-        n: Optional[int] = None,
-    ) -> List[str]:
-        """
-        Generate `n` homogeneous reformulations of the original query.
-
-        Each variant targets the same intent from a slightly different angle
-        (wording, emphasis, perspective) so that vector search can surface
-        chunks it might have missed with a single query.
-
-        Args:
-            query: Original user query.
-            n:     Number of variants to generate (None = use CONFIG default).
-
-        Returns:
-            List of `n` query strings (does NOT include the original).
-        """
-        if n is None:
-            n = CONFIG.multi_query_variants
-        
-        prompt = build_multi_query_prompt(query=query, n=n)
-        result = await async_chat_wrapper(
-            messages=[{"role": "user", "content": prompt}],
-            json_output=True,
-            max_tokens=CONFIG.multi_query_max_tokens,
-            temperature=self.temperature,
-            model_size=self.model_size,
-        )
-        return result.get("queries", [])
-
-    # ── 2. CoT Decomposition ────────────────────────────────────────────────
-    async def cot_decompose(
-        self,
-        query: str,
-    ) -> List[str]:
-        """
-        Decompose a complex query into ordered sub-questions via chain-of-thought.
-
-        The model reasons step-by-step about what must be known first to answer
-        the query, then surfacing each reasoning step as its own search query.
-        Useful when the original query has implicit prerequisites.
-
-        Args:
-            query: Original complex query.
-
-        Returns:
-            Ordered list of sub-questions, from foundational to specific.
-        """
-        prompt = build_cot_decompose_prompt(query=query)
-        result = await async_chat_wrapper(
-            messages=[{"role": "user", "content": prompt}],
-            json_output=True,
-            max_tokens=CONFIG.decomp_max_tokens,
-            temperature=self.temperature,
-            model_size=self.model_size,
-        )
-        return result.get("sub_questions", [])
-
-    # ── 3. Domain Decomposition (Notion-specific) ───────────────────────────
-    async def domain_decompose(
-        self,
-        query: str,
-    ) -> List[str]:
-        """
-        Decompose a query by identifying Notion-specific concepts and
-        generating targeted search instructions for each.
-
-        This variant understands the Notion data model (databases, pages,
-        properties, blocks, data sources) and generates sub-queries that
-        map directly onto Notion API building blocks.
-
-        Args:
-            query: Original query (typically a Notion task).
-
-        Returns:
-            List of Notion-concept-focused search queries.
-        """
-        prompt = build_domain_decompose_prompt(query=query)
-        result = await async_chat_wrapper(
-            messages=[{"role": "user", "content": prompt}],
-            json_output=True,
-            max_tokens=CONFIG.decomp_max_tokens,
-            temperature=self.temperature,
-            model_size=self.model_size,
-        )
-        return result.get("queries", [])
-
-async def search_multiple_queries(
-    queries: List[str],
-    search_fn: partial,
-) -> List[SearchResult]:
-    """
-    Execute multiple search queries and consolidate results with deduplication.
-
-    Takes a list of queries and a partial function wrapping search_vectors.
-    Executes each query, collects all results, and removes duplicates by node ID
-    while preserving the highest score for each unique node.
-
-    Args:
-        queries:   List of search query strings.
-        search_fn: Partial function with signature: search_fn(query) -> List[SearchResult].
-                   Typically: partial(search_vectors, nodes=..., storage=..., top_k=..., threshold=...)
-
-    Returns:
-        Consolidated list of SearchResult objects with duplicates removed.
-        Results sorted by score (descending).
-    """
-    all_results: List[SearchResult] = []
-
-    # Execute search for each query
-    for query in queries:
-        results = await search_fn(query=query)
-        all_results.extend(results)
-
-    # Deduplicate by node ID, keeping highest score
-    unique_nodes: Dict[str, SearchResult] = {}
-    for result in all_results:
-        node_id = result.node.id
-        if node_id not in unique_nodes or result.score > unique_nodes[node_id].score:
-            unique_nodes[node_id] = result
-
-    # Convert back to list and sort by score (descending)
-    consolidated = list(unique_nodes.values())
-    consolidated.sort(key=lambda r: r.score, reverse=True)
-
-    # ── Log consolidated retrieval payload ───────────────────────────────────
-    payload_entries = [
-        {
-            "rank":      rank,
-            "node_id":   r.node.id,
-            "score":     round(r.score, 6),
-            "layer":     r.layer,
-            "parent_id": r.parent_id,
-            "text":      r.text,
-        }
-        for rank, r in enumerate(consolidated, start=1)
-    ]
-    logger.info(
-        "search_multiple_queries | queries=%s | total_raw=%d | consolidated=%d\n%s",
-        queries,
-        len(all_results),
-        len(consolidated),
-        json.dumps(payload_entries, ensure_ascii=False, indent=2),
-    )
-
-    return consolidated
-
-
 # ── Pipeline ─────────────────────────────────────────────────────────────────────────────
 
 _async_client = openai.AsyncOpenAI(
@@ -403,14 +125,6 @@ _async_client = openai.AsyncOpenAI(
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
     max_retries=25,
 )
-
-_MODEL_MAP = {
-    'largest': 'gemini-2.5-flash-lite',
-    "gemma27": 'gemma-3-27b-it',
-    "gemma12": 'gemma-3-12b-it',
-    'gemma4': 'gemma-3-4b-it',
-    'gemma1': 'gemma-3-1b-it',
-}
 
 def _check_finish_reason(model_name: str, finish_reason: str) -> None:
     """Check and log the finish_reason from LLM response."""
@@ -458,33 +172,6 @@ async def async_chat_wrapper(
     if json_output:
         content = extract_json_from_response(content)
     return content
-
-
-def embed_text(text: str) -> List[float]:
-    """
-    Embed text synchronously using Sentence Transformers.
-    
-    Args:
-        text: Text to embed.
-        
-    Returns:
-        Embedding vector as a list of floats
-    """
-    embedding = _get_sentence_transformer_model().encode(
-        text,
-        convert_to_numpy=True,
-        normalize_embeddings=True,
-    )
-    return embedding.tolist()
-
-
-@lru_cache(maxsize=1)
-def _get_sentence_transformer_model() -> SentenceTransformer:
-    model_name = os.getenv("SENTENCE_TRANSFORMER_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-    logger.info("Loading sentence-transformers model: %s", model_name)
-    return SentenceTransformer(model_name)
-
-
 # ── Step 1.5: Requirements Analysis ────────────────────────────────────────────────
 async def analyze_requirements(user_prompt: str) -> Dict[str, str]:
     """
@@ -665,9 +352,6 @@ def write_solution(code: str, path: str = "solution.py") -> None:
 
 # ── Step 6: Judge + Reflect ─────────────────────────────────────────────────────────────
 
-# ── Global reflection context — accumulates extra RAG lookups across trials ──
-REFLECTION_CONTEXT: List[str] = []
-
 _JUDGE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -715,20 +399,17 @@ def run_tests(test_path: str = "current_tests.py") -> Dict[str, Any]:
 
 async def _reflect_search(query: str) -> str:
     """
-    Search RAG (top_k=1) for a single query and auto-summarize with a small model.
-    Appends the summarized result to REFLECTION_CONTEXT and returns it.
+    Search Qdrant (top_k=1) for a single query and auto-summarize with a small model.
     """
-    results = await search_vectors(
+    results = await query_qdrant(
+        client=qdrant_client,
         query=query,
-        nodes=corpora_vectorized,
-        storage=storage,
+        collection_name="notion_docs_leaf",
         top_k=1,
         threshold=0.3,
     )
     if not results:
-        snippet = f"[No results for: {query}]"
-        REFLECTION_CONTEXT.append(snippet)
-        return snippet
+        return f"[No results for: {query}]"
 
     raw_text = results[0].text
     summary = await async_chat_wrapper(
@@ -736,11 +417,9 @@ async def _reflect_search(query: str) -> str:
             f"Summarize the following Notion API documentation snippet in 3-5 sentences. "
             f"Keep all endpoint URLs, field names, and required properties verbatim.\n\n{raw_text}"
         )}],
-        json_output=False, max_tokens=300, temperature=0.1, model_size="gemma4b",
+        json_output=False, max_tokens=300, temperature=0.1, model_size="gemma4",
     )
-    entry = f"[Query: {query}]\n{summary}"
-    REFLECTION_CONTEXT.append(entry)
-    return entry
+    return f"[Query: {query}]\n{summary}"
 
 
 async def _preflect(
@@ -770,13 +449,14 @@ async def reflect_code(
     generated_code: str,
     test_results: Dict[str, Any],
     solution_run: Optional[Dict[str, Any]] = None,
+    reflection_context: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     LLM reflection step that diagnoses failures and gives repair guidance.
 
     1. Runs a lightweight preflect pass to decide if extra RAG lookups are needed.
-    2. If yes, fetches up to 3 targeted RAG snippets (top_k=1, gemma4 summary),
-       accumulated in the global REFLECTION_CONTEXT.
+     2. If yes, fetches up to 3 targeted RAG snippets (top_k=1, gemma4 summary),
+         accumulated in the reflection_context list.
     3. Runs the full reflection with all available context injected.
 
     Returns {"reasoning": str, "pass": bool, "feedback": "..."}
@@ -803,17 +483,20 @@ async def reflect_code(
     needs_lookup = preflect.get("needs_lookup", False)
     lookup_queries = preflect.get("queries", [])[:3]
 
+    if reflection_context is None:
+        reflection_context = []
+
     if needs_lookup and lookup_queries:
         print(f"  [reflect] RAG lookup needed — {len(lookup_queries)} quer{'y' if len(lookup_queries)==1 else 'ies'}: {lookup_queries}")
         for q in lookup_queries:
-            await _reflect_search(q)
+            reflection_context.append(await _reflect_search(q))
     else:
         print("  [reflect] No extra RAG lookup needed.")
 
-    # ── Step 2: Build extra context block from accumulated REFLECTION_CONTEXT ─
+    # ── Step 2: Build extra context block from accumulated reflection context ─
     extra_ctx_block = ""
-    if REFLECTION_CONTEXT:
-        joined = "\n\n".join(REFLECTION_CONTEXT)
+    if reflection_context:
+        joined = "\n\n".join(reflection_context)
         extra_ctx_block = (
             "<reflection_context>\n"
             "Additional Notion API documentation fetched during reflection:\n\n"
@@ -835,174 +518,8 @@ async def reflect_code(
         json_output=True, max_tokens=900, temperature=0.2, model_size="gemma27",
     )
 
+
 # ── Evaluation ─────────────────────────────────────────────────────────────────────────────
-
-
-async def run_agent_pipeline(
-    user_prompt: str,
-    retrieval_context: str,
-    max_trials: int = CONFIG.max_trials,
-    with_tests: bool = True,
-    minimal: bool = False,
-) -> Dict[str, Any]:
-    """
-    Full agent loop with EXTERNAL retrieval context injection.
-
-    Retrieval is done outside this function. This function only consumes
-    `retrieval_context` and executes plan → tests/code/reflection (or minimal path).
-
-    Minimal mode (`minimal=True`) = plan + code only and force-overrides:
-      - max_trials=1
-      - with_tests=False
-      - reflection/judge disabled
-    """
-    artifacts: Dict[str, Any] = {"trials": []}
-    separator = "=" * 60
-
-    # Enforce minimal-mode overrides inside pipeline (ignore conflicting args)
-    if minimal:
-        if max_trials != 1 or with_tests:
-            print("[pipeline] minimal=True -> overriding args: max_trials=1, with_tests=False")
-        max_trials = 1
-        with_tests = False
-
-    # Reset reflection context for this pipeline run
-    global REFLECTION_CONTEXT
-    REFLECTION_CONTEXT = []
-
-    # ── Step 1: Use externally provided retrieval context ─────────────────────
-    print(f"\n{separator}\nSTEP 1 — Using provided retrieval context …")
-    rag_context = retrieval_context
-    artifacts["rag_context"] = rag_context
-    print(f"  Context length: {len(rag_context)} chars")
-
-    # ── Step 2: Plan + general_info ───────────────────────────────────────────
-    print(f"\n{separator}\nSTEP 2 — Generating request plan …")
-    request_plan = await generate_request_plan(user_prompt, rag_context)
-    general_info = build_general_info(user_prompt, rag_context, request_plan)
-    artifacts["request_plan"] = request_plan
-    artifacts["general_info"] = general_info
-    print(request_plan[:300])
-
-    # ── Minimal mode: plan + code only ────────────────────────────────────────
-    if minimal:
-        print(f"\n{separator}\nMINIMAL MODE — plan + code only")
-        code_result = await generate_code(general_info, test_code="No tests are used.", feedback=None)
-        generated_code = code_result.get("code", "")
-        function_name = code_result.get("function_name", "")
-        write_solution(generated_code)
-
-        trial_data: Dict[str, Any] = {
-            "trial_num": 1,
-            "code": generated_code,
-            "function_name": function_name,
-            "test_results": {"exit_code": None, "stdout": "", "stderr": "", "passed": None},
-            "solution_run": None,
-            "verdict": {
-                "reasoning": "Minimal mode skips reflection.",
-                "pass": None,
-                "feedback": "",
-            },
-        }
-        artifacts["trials"].append(trial_data)
-        artifacts["test_code"] = "No tests are used."
-        artifacts["final_code"] = generated_code
-        artifacts["passed"] = None
-        artifacts["total_trials"] = 1
-        print(f"  function: {function_name}")
-        print(f"\n{separator}\nAGENT COMPLETE — minimal mode")
-        return artifacts
-
-    # ── Step 3: Generate tests (optional) ────────────────────────────────────
-    if with_tests:
-        print(f"\n{separator}\nSTEP 3 — Generating tests …")
-        test_code = await generate_tests(general_info)
-        write_tests(test_code)
-    else:
-        test_code = "No tests are used. "
-        test_results = {
-            "exit_code": None,
-            "stdout": "",
-            "stderr": "",
-            "passed": None,
-        }
-
-    artifacts["test_code"] = test_code
-    feedback: Optional[str] = None
-
-    for trial in range(1, max_trials + 1):
-        trial_data: Dict[str, Any] = {"trial_num": trial}
-        print(f"\n{separator}\nTRIAL {trial}/{max_trials}")
-
-        # ── Step 4: Generate code ─────────────────────────────────────────────
-        print("STEP 4 — Generating solution code …")
-        code_result = await generate_code(general_info, test_code, feedback=feedback)
-        generated_code = code_result.get("code", "")
-        function_name = code_result.get("function_name", "")
-        write_solution(generated_code)
-        trial_data["code"] = generated_code
-        trial_data["function_name"] = function_name
-        print(f"  function: {function_name}")
-
-        # ── Run tests ─────────────────────────────────────────────────────────
-        print("Running pytest …")
-        if with_tests:
-            test_results = run_tests()
-            trial_data["test_results"] = test_results
-            print(f"  tests passed: {test_results['passed']}")
-            if not test_results["passed"]:
-                print(test_results["stdout"][-1000:])
-        else:
-            trial_data["test_results"] = test_results
-
-        # ── Run solution.py ───────────────────────────────────────────────────
-        print("Running solution.py …")
-        sol_run = subprocess.run(
-            [sys.executable, "solution.py"],
-            capture_output=True, text=True, timeout=30,
-        )
-        trial_data["solution_run"] = {
-            "exit_code": sol_run.returncode,
-            "stdout": sol_run.stdout,
-            "stderr": sol_run.stderr,
-        }
-        print(f"  solution.py exit code: {sol_run.returncode}")
-        if sol_run.returncode != 0:
-            print(f"  stderr: {sol_run.stderr[:500]}")
-
-        # ── Judge ─────────────────────────────────────────────────────────────
-        print("Judging code …")
-        verdict = await reflect_code(general_info, generated_code, test_results, solution_run=trial_data["solution_run"])
-        trial_data["verdict"] = verdict
-        trial_data["reflection_context"] = list(REFLECTION_CONTEXT)  # snapshot after this trial
-
-        passed = verdict.get("pass", False)
-        feedback = verdict.get("feedback", "")
-
-        print(f"  Verdict: {'PASS' if passed else 'FAIL'}")
-
-        artifacts["trials"].append(trial_data)
-
-        if passed:
-            print(f"\n{separator}\nAGENT COMPLETE — trial {trial}")
-            artifacts["final_code"] = generated_code
-            artifacts["passed"] = True
-            artifacts["total_trials"] = trial
-            return artifacts
-
-        if trial < max_trials:
-            print(f"\n  Feedback: {str(feedback)[:200]}\n  → Retrying …")
-            general_info = (
-                general_info.rstrip("</general_info>").rstrip()
-                + f"\n\n<previous_attempt_feedback trial='{trial}'>\n{feedback}\n"
-                  "</previous_attempt_feedback>\n</general_info>"
-            )
-
-    print(f"\n{separator}\nAGENT EXHAUSTED — max trials reached.")
-    artifacts["final_code"] = generated_code
-    artifacts["passed"] = False
-    artifacts["total_trials"] = max_trials
-    return artifacts
 
 
 async def _judge_single_category(

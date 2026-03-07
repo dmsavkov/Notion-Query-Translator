@@ -126,3 +126,5 @@ instructions/
 data/
 frameworks/
 .deepeval/
+demo.ipynb
+/solution.py

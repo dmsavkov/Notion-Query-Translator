@@ -75,6 +75,16 @@ class AppConfig(BaseModel):
 
 CONFIG = AppConfig()
 
+_MODEL_MAP = {
+    "largest": "gemini-2.5-flash-lite",
+    "gemma27": "gemma-3-27b-it",
+    "gemma12": "gemma-3-12b-it",
+    "gemma4": "gemma-3-4b-it",
+    "gemma1": "gemma-3-1b-it",
+}
+
+QDRANT_PATH = "./data/.qdrant_storage"
+
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -101,6 +111,7 @@ def build_logger() -> None:
 # ── Data Loaders ───────────────────────────────────────────────────────────────
 
 def load_storage(path: str = "vectors/storage.pkl") -> Dict[str, Any]:
+    # TODO: delete after all callers migrate to Qdrant-backed storage.
     """Load hierarchical chunk storage from pickle."""
     resolved_path = Path(path)
     if not resolved_path.exists() or not resolved_path.is_file():
@@ -110,6 +121,7 @@ def load_storage(path: str = "vectors/storage.pkl") -> Dict[str, Any]:
 
 
 def load_corpora_vectorized(path: str = "vectors/corpora_vectorized.pkl") -> List:
+    # TODO: delete after all callers migrate to Qdrant-backed storage.
     """Load vectorized leaf nodes from pickle."""
     resolved_path = Path(path)
     if not resolved_path.exists() or not resolved_path.is_file():
