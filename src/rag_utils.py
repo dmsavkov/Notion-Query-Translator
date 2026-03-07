@@ -180,10 +180,11 @@ async def search_multiple_queries(
     ]
     logger.info(
         "search_multiple_queries | queries=%s | total_raw=%d | consolidated=%d\n%s",
-        queries,
+        len(queries),
         len(all_results),
         len(consolidated),
-        json.dumps(payload_entries, ensure_ascii=False, indent=2),
     )
+    logger.debug("search_multiple_queries | queries=%s", json.dumps(queries, indent=2, ensure_ascii=False))
+    logger.debug("search_multiple_queries | payload_entries=%s", json.dumps(payload_entries, indent=2, ensure_ascii=False))
 
     return consolidated
