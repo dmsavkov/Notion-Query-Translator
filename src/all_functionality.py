@@ -56,12 +56,13 @@ def extract_json_from_response(response_content: Optional[str]) -> Dict[str, Any
     1. Direct JSON string
     2. JSON wrapped in markdown code blocks (```json ... ```)
     3. JSON with extra whitespace/newlines
+    4. JSON embedded in text (finds leftmost { or [ and rightmost } or ])
     
     Args:
         response_content: Raw response content from LLM
         
     Returns:
-        Parsed JSON as dictionary
+        Parsed JSON as dictionary or list
         
     Raises:
         ValueError: If JSON cannot be extracted or parsed
@@ -106,6 +107,46 @@ def extract_json_from_response(response_content: Optional[str]) -> Dict[str, Any
             return json.loads(json_str)
     except (json.JSONDecodeError, IndexError) as e:
         logger.debug(f"Fallback split method failed: {e}")
+    
+    # Advanced fallback: Find leftmost { or [ and rightmost } or ]
+    try:
+        left_brace = response_content.find('{')
+        left_bracket = response_content.find('[')
+        right_brace = response_content.rfind('}')
+        right_bracket = response_content.rfind(']')
+        
+        # Determine which bracket pair to use
+        start_idx = -1
+        end_idx = -1
+        
+        if left_brace >= 0 and right_brace > left_brace:
+            if left_bracket >= 0 and left_bracket < left_brace:
+                # [ comes before {, use [ ... ]
+                if right_bracket > right_brace:
+                    start_idx = left_bracket
+                    end_idx = right_bracket
+                else:
+                    start_idx = left_brace
+                    end_idx = right_brace
+            else:
+                # { comes first, use { ... }
+                start_idx = left_brace
+                end_idx = right_brace
+        elif left_bracket >= 0 and right_bracket > left_bracket:
+            # Only [ ... ] is valid
+            start_idx = left_bracket
+            end_idx = right_bracket
+        
+        if start_idx >= 0 and end_idx > start_idx:
+            json_str = response_content[start_idx:end_idx + 1]
+            try:
+                result = json.loads(json_str)
+                logger.debug("Successfully extracted JSON using bracket-matching method")
+                return result
+            except json.JSONDecodeError as e:
+                logger.debug(f"Bracket-matching extraction failed: {e}")
+    except Exception as e:
+        logger.debug(f"Bracket-matching method error: {e}")
     
     # If all methods fail, raise error with helpful message
     raise ValueError(
@@ -154,7 +195,9 @@ async def async_chat_wrapper(
                 response_format={"type": "json_object"}
             )
             _check_finish_reason(model_name, response.choices[0].finish_reason)
-            return json.loads(response.choices[0].message.content)
+            content = response.choices[0].message.content
+            logger.debug(f"LLM response: {content}")
+            return json.loads(content)
         
         else:
             msgs.append({"role": "user", "content": "Please provide the output in JSON format."})
@@ -168,6 +211,7 @@ async def async_chat_wrapper(
     _check_finish_reason(model_name, response.choices[0].finish_reason)
     
     content = response.choices[0].message.content
+    logger.debug(f"LLM response: {content}")
     if json_output:
         content = extract_json_from_response(content)
     return content
