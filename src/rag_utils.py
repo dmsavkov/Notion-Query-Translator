@@ -104,21 +104,47 @@ async def query_qdrant(
 
 async def summarize_retrieval_results(
     results: List[SearchResult],
+    query: str,  # Added query to ground the relevance
     chat_fn: Callable[..., Awaitable[Any]],
 ) -> str:
-    """Summarize retrieved chunks with concise coding-focused bullets."""
-    concatenated = "\n\n".join(r.text for r in results)
+    """
+    Extracts high-density technical specifications from RAG chunks, 
+    discarding prose and preserving literal API syntax.
+    """
+    concatenated = "\n\n".join(f"CHUNK {i}:\n{r.text}" for i, r in enumerate(results))
+    
+    prompt = f"""
+    You are a Technical Document Parser. Your goal is to extract a High-Density Technical Specification from Notion API documentation for the following query.
+
+    QUERY: "{query}"
+
+    ### INSTRUCTIONS:
+    1. REMOVE NOISE: Discard all introductory prose, marketing language, general explanations, and non-essential sidebars.
+    2. PRESERVE LITERALS: Extract exact Endpoint URLs, HTTP Methods (POST/PATCH), and mandatory Header values (e.g., Notion-Version).
+    3. SCHEMA EXTRACTION: For every property mentioned, extract the literal JSON nesting path. 
+       - DO NOT summarize as "The name property." 
+       - DO extract as: "Name": {{"title": [{{"text": {{"content": "..."}}}}]}}
+    4. DATA TYPES: Explicitly list required types (e.g., 'number' vs 'string').
+
+    ### OUTPUT FORMAT:
+    - **Endpoint & Method:** [Literal string]
+    - **Required Headers:** [Literal strings]
+    - **Literal Schema Snippets:** [Code blocks of JSON structures found in text]
+    - **Constraints:** [Specific validation rules like "max 2000 characters"]
+
+    DOCUMENTATION CONTEXT:
+    {concatenated}
+    """
+
     summary = await chat_fn(
         messages=[
             {
                 "role": "user",
-                "content": (
-                    "Summarize the following retrieved context in concise bullet points to guide coding:\n\n"
-                    f"{concatenated}"
-                ),
+                "content": prompt,
             }
         ],
         max_tokens=1500,
+        temperature=0, # Crucial for deterministic extraction
     )
     return str(summary)
 

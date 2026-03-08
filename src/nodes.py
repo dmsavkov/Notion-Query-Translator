@@ -7,6 +7,7 @@ These nodes handle retrieval, planning, code generation, execution, and reflecti
 import subprocess
 import sys
 from typing import Any, Dict, List, Literal, Optional
+from functools import partial
 
 from langchain_core.runnables import RunnableConfig
 
@@ -76,7 +77,8 @@ async def retrieve_node(state: Dict[str, Any], config: Optional[RunnableConfig] 
     results = results[:top_k_total]
     
     if use_summarization:
-        retrieval_context = await summarize_retrieval_results(results, chat_fn=async_chat_wrapper)
+        summarize_chat_fn = partial(async_chat_wrapper, model_size="gemma4", temperature=0.2)
+        retrieval_context = await summarize_retrieval_results(results, query=user_prompt, chat_fn=summarize_chat_fn)
     else:
         retrieval_context = "\n\n".join(r.text for r in results)
         
