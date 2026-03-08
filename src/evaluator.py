@@ -93,7 +93,7 @@ class Evaluator:
         context: str,
         statements: List[str],
         judge_model_name: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> List[Dict[str, Any]]:
         """
         Validate statements against a given context via LLM.
         
@@ -106,23 +106,21 @@ class Evaluator:
         
         Returns:
             Un-jsoned dict with statement validation results:
-            {
-                "statements": [
-                    {
-                        "statement": "...",
-                        "status": "Present | Wrong | Not present",
-                        "evidence": "...",
-                        "reasoning": "..."
-                    },
-                    ...
-                ]
-            }
+            [
+                {
+                    "statement": "...",
+                    "status": "Present | Wrong | Not present",
+                    "evidence": "...",
+                    "reasoning": "..."
+                },
+                ...
+            ]
         """
         model = judge_model_name or self.default_judge_model
         
         if not statements:
             logger.warning("eval_context_statements: no statements provided")
-            return {"statements": []}
+            return []
         
         # Build prompt using reusable function
         prompt = build_prompt_statements(context, statements)
@@ -136,7 +134,7 @@ class Evaluator:
             max_tokens=self.max_tokens,
         )
         
-        return result if isinstance(result, dict) else {}
+        return result
     
     async def eval_code_exec(self, code: str) -> Dict[str, Any]:
         """
