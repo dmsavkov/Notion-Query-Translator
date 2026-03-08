@@ -362,7 +362,9 @@ def build_generate_code_prompt(
         "  • Docstrings and type hints on every public function.\n"
         "  • Use the `requests` library for HTTP calls.\n"
         "  • Raise a descriptive Exception on any non-2xx API response, but print the 'e.response.text' for debugging.\n"
-        "  • `if __name__ == '__main__':` block that calls the function with os.getenv values.\n\n"
+        "  • `if __name__ == '__main__':` block that calls the function with os.getenv values.\n"
+        "  • The `if __name__ == '__main__':` block MUST call `sys.exit(1)` if the function raises any exception or returns an error state.\n"
+        "  • Never leave default mutable objects as function arguments (e.g., `def fn(data: list = [])`); use `None` instead.\n\n"
         'Return as JSON: {"code": "<complete python module>", "function_name": "<main function name>"}'
     )
 

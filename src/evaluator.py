@@ -166,7 +166,7 @@ class Evaluator:
                 "errors": None,
             }
         
-        except Exception as e:
+        except (Exception, SystemExit) as e:
             result = {
                 "pass": False,
                 "output": stdout_buf.getvalue(),
