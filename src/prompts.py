@@ -541,8 +541,8 @@ def build_prompt_statements(context: str, statements: List[str]) -> str:
 
     ### Inputs
 
-    - **Context to Inspect:** {{context}}
-    - **Technical Statements:** {{statements}}
+    - **Context to Inspect:** {context}
+    - **Technical Statements:** {statements}
 
     ### Evaluation Rubric
 
@@ -564,6 +564,6 @@ def build_prompt_statements(context: str, statements: List[str]) -> str:
     - **Brevity:** Keep the reasoning field under 15 words.
     - **Accuracy:** Pierce the "blurred cloud" of general descriptions; look for literal strings (URLs, JSON keys, headers).
     
-    {{output_format}}
+    {output_format}
     """.format(context=context, statements="\n- ".join(statements), output_format=output_format)
     
