@@ -28,7 +28,7 @@ def generate_thread_id(prefix: Optional[str] = None) -> str:
 class CodeGeneratorParams(BaseModel):
     model_name: str = "gemma27"
     model_temperature: float = 0.3
-    max_tokens: int = 2500
+    max_tokens: int = 4000
 
     model_config = ConfigDict(frozen=True)
 
@@ -36,7 +36,7 @@ class CodeGeneratorParams(BaseModel):
 class ReflectorParams(BaseModel):
     model_name: str = "gemma27"
     model_temperature: float = 0.2
-    max_tokens: int = 900
+    max_tokens: int = 1200
 
     model_config = ConfigDict(frozen=True)
 
@@ -46,9 +46,9 @@ class QueryTranslatorParams(BaseModel):
     model_temperature: float = 0.3
     max_tokens: int = 1500
     top_k: int = 5
-    top_k_total: int = 20
-    query_method: Literal["multi_query", "cot_decompose", "domain_decompose"] = "domain_decompose"
-    use_summarization: bool = True
+    top_k_total: int = 8
+    query_method: Literal["multi_query", "cot_decompose", "domain_decompose"] = "cot_decompose"
+    use_summarization: bool = False
 
     model_config = ConfigDict(frozen=True)
 
