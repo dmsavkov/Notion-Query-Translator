@@ -44,7 +44,7 @@ solution: |
   # Example usage:
   # update_task_status("31acb17dcc4480edbe0bcc0079323783", "Done")
 
-rag_eval_statements:
+correct_statements:
   - "Endpoint is PATCH https://api.notion.com/v1/pages/{page_id} for updating a page."
   - "Header 'Notion-Version: 2022-06-28' is required on every request."
   - "Header 'Authorization: Bearer <token>' is required as authentication."
