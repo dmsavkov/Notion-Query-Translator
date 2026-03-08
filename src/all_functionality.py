@@ -529,7 +529,7 @@ async def reflect_code(
             "</solution_run>\n\n"
         )
 
-    # ── Step 1: Preflect — decide if extra RAG lookups needed ────────────────
+    '''# ── Step 1: Preflect — decide if extra RAG lookups needed ────────────────
     preflect = await _preflect(general_info, generated_code, test_summary, sol_summary)
     needs_lookup = preflect.get("needs_lookup", False)
     lookup_queries = preflect.get("queries", [])[:3]
@@ -542,7 +542,7 @@ async def reflect_code(
         for q in lookup_queries:
             reflection_context.append(await _reflect_search(q))
     else:
-        print("  [reflect] No extra RAG lookup needed.")
+        print("  [reflect] No extra RAG lookup needed.")'''
 
     # ── Step 2: Build extra context block from accumulated reflection context ─
     extra_ctx_block = ""
