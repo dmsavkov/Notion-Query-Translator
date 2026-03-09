@@ -61,8 +61,10 @@ async def retrieve_node(state: Dict[str, Any], config: Optional[RunnableConfig] 
     top_k_total: int = qt_params.get("top_k_total", 20)
     use_summarization: bool = qt_params.get("use_summarization", True)
     query_method: str = qt_params.get("query_method", "domain_decompose")
+    model_name: str = qt_params.get("model_name", "gemma27")
 
-    engineer = QueryEngineer(chat_fn=async_chat_wrapper)
+    query_chat_fn = partial(async_chat_wrapper, model_size=model_name)
+    engineer = QueryEngineer(chat_fn=query_chat_fn)
     queries = await _create_queries(query_method, engineer, user_prompt)
 
     async def _search(query: str) -> List[SearchResult]:
