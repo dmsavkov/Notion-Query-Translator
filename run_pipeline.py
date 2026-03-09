@@ -168,17 +168,19 @@ async def main() -> Dict[str, Dict[str, Any]]:
             }
 
             try: 
+                configurable = {
+                    "thread_id": generate_thread_id(prefix=task_id),
+                    "pipeline_params": pipeline_params.model_dump(),
+                    "static_params": static_params.model_dump(),
+                    "agent_params": agent_params.model_dump(),
+                    "build_rag": asdict(rag_build_config),
+                }
                 final_state = await pipeline.ainvoke(
                     initial_state,
-                    config={
-                        "configurable": {
-                            "thread_id": generate_thread_id(prefix=task_id),
-                            "pipeline_params": pipeline_params.model_dump(),
-                            "static_params": static_params.model_dump(),
-                            "agent_params": agent_params.model_dump(),
-                            "build_rag": asdict(rag_build_config),
-                        }
-                    },
+                    config=RunnableConfig(
+                        configurable=configurable,
+                        metadata=configurable
+                    )
                 )
                 passed = bool(final_state.get("passed", False))
                 results[task_id] = {

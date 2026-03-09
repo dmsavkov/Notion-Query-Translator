@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import openai
 import yaml
+from langsmith.wrappers import wrap_openai
 
 from .config import (
     _MODEL_MAP,
@@ -160,11 +161,11 @@ def extract_json_from_response(response_content: Optional[str]) -> Dict[str, Any
 
 # ── Pipeline ─────────────────────────────────────────────────────────────────────────────
 
-_async_client = openai.AsyncOpenAI(
+_async_client = wrap_openai(openai.AsyncOpenAI(
     api_key=os.getenv("GOOGLE_API_KEY"),
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
     max_retries=25,
-)
+))
 
 def _check_finish_reason(model_name: str, finish_reason: str) -> None:
     """Check and log the finish_reason from LLM response."""
