@@ -54,16 +54,23 @@ async def _create_queries(
 
 # ── LangGraph Node Wrappers ───────────────────────────────────────────────────────────
 
-async def retrieve_node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
+async def retrieve_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
     user_prompt = state["user_prompt"]
-    qt_params = (config or {}).get("configurable", {}).get("agent_params", {}).get("query_translator", {})
-    top_k: int = qt_params.get("top_k", 5)
-    top_k_total: int = qt_params.get("top_k_total", 20)
-    use_summarization: bool = qt_params.get("use_summarization", True)
-    query_method: str = qt_params.get("query_method", "domain_decompose")
-    model_name: str = qt_params.get("model_name", "gemma27")
+    qt_params = config["configurable"]["agent_params"]["query_translator"]
+    top_k: int = qt_params["top_k"]
+    top_k_total: int = qt_params["top_k_total"]
+    use_summarization: bool = qt_params["use_summarization"]
+    query_method: str = qt_params["query_method"]
+    model_name: str = qt_params["model_name"]
+    model_temperature: float = qt_params["model_temperature"]
+    max_tokens: int = qt_params["max_tokens"]
 
-    query_chat_fn = partial(async_chat_wrapper, model_size=model_name)
+    query_chat_fn = partial(
+        async_chat_wrapper,
+        model_size=model_name,
+        temperature=model_temperature,
+        max_tokens=max_tokens,
+    )
     engineer = QueryEngineer(chat_fn=query_chat_fn)
     queries = await _create_queries(query_method, engineer, user_prompt)
 
@@ -87,17 +94,17 @@ async def retrieve_node(state: Dict[str, Any], config: Optional[RunnableConfig] 
     return {"retrieval_context": retrieval_context}
 
 
-async def plan_node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
+async def plan_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
     request_plan = await generate_request_plan(state["user_prompt"], state["retrieval_context"])
     general_info = build_general_info(state["user_prompt"], state["retrieval_context"], request_plan)
     return {"request_plan": request_plan, "general_info": general_info}
 
 
-async def codegen_node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
-    cg_params = (config or {}).get("configurable", {}).get("agent_params", {}).get("code_generator", {})
-    model_size: str = cg_params.get("model_name", "gemma27")
-    temperature: float = cg_params.get("model_temperature", 0.3)
-    max_tokens: int = cg_params.get("max_tokens", 2500)
+async def codegen_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    cg_params = config["configurable"]["agent_params"]["code_generator"]
+    model_size: str = cg_params["model_name"]
+    temperature: float = cg_params["model_temperature"]
+    max_tokens: int = cg_params["max_tokens"]
 
     feedback = state.get("feedback")
     code_result = await generate_code(
@@ -118,7 +125,7 @@ async def codegen_node(state: Dict[str, Any], config: Optional[RunnableConfig] =
     }
 
 
-async def execute_node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
+async def execute_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
     sol_run = subprocess.run(
         [sys.executable, "solution.py"],
         capture_output=True,
@@ -134,11 +141,11 @@ async def execute_node(state: Dict[str, Any], config: Optional[RunnableConfig] =
     }
 
 
-async def reflect_node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
-    ref_params = (config or {}).get("configurable", {}).get("agent_params", {}).get("reflector", {})
-    model_size: str = ref_params.get("model_name", "gemma27")
-    temperature: float = ref_params.get("model_temperature", 0.2)
-    max_tokens: int = ref_params.get("max_tokens", 900)
+async def reflect_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    ref_params = config["configurable"]["agent_params"]["reflector"]
+    model_size: str = ref_params["model_name"]
+    temperature: float = ref_params["model_temperature"]
+    max_tokens: int = ref_params["max_tokens"]
 
     solution_run = state.get("solution_run") or {"exit_code": None, "stdout": "", "stderr": ""}
     test_results = {

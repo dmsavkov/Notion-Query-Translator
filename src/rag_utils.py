@@ -150,17 +150,13 @@ async def summarize_retrieval_results(
 
 
 class QueryEngineer:
-    """Query-engineering helpers with configurable model and temperature."""
+    """Query-engineering helpers that use a pre-configured chat function."""
 
     def __init__(
         self,
         chat_fn: Callable[..., Awaitable[Any]],
-        temperature: Optional[float] = None,
-        model_size: Optional[str] = None,
     ):
         self.chat_fn = chat_fn
-        self.temperature = temperature if temperature is not None else CONFIG.query_engineer_temperature
-        self.model_size = model_size if model_size is not None else CONFIG.default_model
 
     async def multi_query(self, query: str, n: Optional[int] = None) -> List[str]:
         if n is None:
@@ -170,9 +166,6 @@ class QueryEngineer:
         result = await self.chat_fn(
             messages=[{"role": "user", "content": prompt}],
             json_output=True,
-            max_tokens=CONFIG.multi_query_max_tokens,
-            temperature=self.temperature,
-            model_size=self.model_size,
         )
         return result.get("queries", []) if isinstance(result, dict) else []
 
@@ -181,9 +174,6 @@ class QueryEngineer:
         result = await self.chat_fn(
             messages=[{"role": "user", "content": prompt}],
             json_output=True,
-            max_tokens=CONFIG.decomp_max_tokens,
-            temperature=self.temperature,
-            model_size=self.model_size,
         )
         return result.get("sub_questions", []) if isinstance(result, dict) else []
 
@@ -192,9 +182,6 @@ class QueryEngineer:
         result = await self.chat_fn(
             messages=[{"role": "user", "content": prompt}],
             json_output=True,
-            max_tokens=CONFIG.decomp_max_tokens,
-            temperature=self.temperature,
-            model_size=self.model_size,
         )
         return result.get("queries", []) if isinstance(result, dict) else []
 

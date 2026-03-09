@@ -97,17 +97,17 @@ class PipelineState(TypedDict):
     passed: bool
 
 
-def route_after_codegen(state: PipelineState, config: Optional[RunnableConfig] = None) -> str:
-    minimal = config.get("configurable", {}).get("pipeline_params", {}).get("minimal", False) if config else False
+def route_after_codegen(state: PipelineState, config: RunnableConfig) -> str:
+    minimal = config["configurable"]["pipeline_params"]["minimal"]
     if minimal:
         return END
     return "execute"
 
 
-def route_after_reflect(state: PipelineState, config: Optional[RunnableConfig] = None) -> str:
+def route_after_reflect(state: PipelineState, config: RunnableConfig) -> str:
     if state.get("passed", False):
         return END
-    max_trials = config.get("configurable", {}).get("pipeline_params", {}).get("max_trials", 1) if config else 1
+    max_trials = config["configurable"]["pipeline_params"]["max_trials"]
     if state.get("trial_num", 0) >= max_trials:
         return END
     return "codegen"
