@@ -80,6 +80,7 @@ class StaticParams(BaseModel):
 
 
 class PipelineState(TypedDict):
+    task_id: str
     user_prompt: str
     retrieval_context: str
     request_plan: str
@@ -151,6 +152,7 @@ async def main() -> Dict[str, Dict[str, Any]]:
                 or ""
             )
             initial_state: PipelineState = {
+                "task_id": task_id,
                 "user_prompt": prompt,
                 "retrieval_context": "",
                 "request_plan": "",
