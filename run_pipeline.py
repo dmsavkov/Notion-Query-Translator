@@ -45,7 +45,7 @@ class QueryTranslatorParams(BaseModel):
     model_name: str = "gemma27"
     model_temperature: float = 0.3
     max_tokens: int = 1500
-    n_queries: int = 4
+    n_queries: int = 6
     top_k: int = 5
     top_k_total: int = 8
     query_method: Literal["multi_query", "cot_decompose", "domain_decompose"] = "cot_decompose"
@@ -144,8 +144,9 @@ async def main() -> Dict[str, Dict[str, Any]]:
     async with AsyncSqliteSaver.from_conn_string(static_params.sqlite_saver_path) as checkpointer:
         pipeline = build_pipeline().compile(checkpointer=checkpointer)
 
-        results: Dict[str, Dict[str, Any]] = {}
-        for task_id, task_data in eval_tasks.items():
+        semaphore = asyncio.Semaphore(3)
+
+        async def _run_task(task_id: str, task_data: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
             prompt = (
                 task_data.get("query")
                 or task_data.get("user_prompt")
@@ -170,33 +171,44 @@ async def main() -> Dict[str, Dict[str, Any]]:
                 "passed": False,
             }
 
-            try: 
-                configurable = {
-                    "thread_id": generate_thread_id(prefix=task_id),
-                    "pipeline_params": pipeline_params.model_dump(),
-                    "static_params": static_params.model_dump(),
-                    "agent_params": agent_params.model_dump(),
-                    "build_rag": asdict(rag_build_config),
-                }
-                final_state = await pipeline.ainvoke(
-                    initial_state,
-                    config=RunnableConfig(
-                        configurable=configurable,
-                        metadata=configurable
+            async with semaphore:
+                try:
+                    configurable = {
+                        "thread_id": generate_thread_id(prefix=task_id),
+                        "pipeline_params": pipeline_params.model_dump(),
+                        "static_params": static_params.model_dump(),
+                        "agent_params": agent_params.model_dump(),
+                        "build_rag": asdict(rag_build_config),
+                    }
+                    final_state = await pipeline.ainvoke(
+                        initial_state,
+                        config=RunnableConfig(
+                            configurable=configurable,
+                            metadata=configurable
+                        )
                     )
-                )
-                passed = bool(final_state.get("passed", False))
-                results[task_id] = {
-                    "passed": passed,
-                    "final_code": final_state.get("final_code", ""),
-                    "trials": final_state.get("trials", []),
-                }
-                print(f"{task_id}: {'PASS' if passed else 'FAIL'}")
-            except Exception as e:
-                print("Exception occured. ")
-                print(e)
+                    passed = bool(final_state.get("passed", False))
+                    print(f"{task_id}: {'PASS' if passed else 'FAIL'}")
+                    return task_id, {
+                        "passed": passed,
+                        "final_code": final_state.get("final_code", ""),
+                        "trials": final_state.get("trials", []),
+                    }
+                except Exception as e:
+                    print(f"{task_id}: Exception occurred")
+                    print(e)
+                    return task_id, {
+                        "passed": False,
+                        "final_code": "",
+                        "trials": [],
+                        "error": str(e),
+                    }
 
-        return results
+        task_results = await asyncio.gather(
+            *(_run_task(task_id, task_data) for task_id, task_data in eval_tasks.items())
+        )
+
+        return {task_id: result for task_id, result in task_results}
 
 
 if __name__ == "__main__":
