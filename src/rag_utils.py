@@ -7,7 +7,7 @@ from fastembed import TextEmbedding
 from qdrant_client import QdrantClient
 from qdrant_client import models as qmodels
 
-from .config import CONFIG, QDRANT_PATH, SearchResult, TextNode
+from .config import QDRANT_PATH, SearchResult, TextNode
 from .prompts import (
     build_cot_decompose_prompt,
     build_domain_decompose_prompt,
@@ -155,12 +155,14 @@ class QueryEngineer:
     def __init__(
         self,
         chat_fn: Callable[..., Awaitable[Any]],
+        n_queries: int = 4,
     ):
         self.chat_fn = chat_fn
+        self.n_queries = n_queries
 
     async def multi_query(self, query: str, n: Optional[int] = None) -> List[str]:
         if n is None:
-            n = CONFIG.multi_query_variants
+            n = self.n_queries
 
         prompt = build_multi_query_prompt(query=query, n=n)
         result = await self.chat_fn(

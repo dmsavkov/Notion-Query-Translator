@@ -64,6 +64,7 @@ async def retrieve_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[s
     model_name: str = qt_params["model_name"]
     model_temperature: float = qt_params["model_temperature"]
     max_tokens: int = qt_params["max_tokens"]
+    n_queries: int = qt_params["n_queries"]
 
     query_chat_fn = partial(
         async_chat_wrapper,
@@ -71,7 +72,7 @@ async def retrieve_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[s
         temperature=model_temperature,
         max_tokens=max_tokens,
     )
-    engineer = QueryEngineer(chat_fn=query_chat_fn)
+    engineer = QueryEngineer(chat_fn=query_chat_fn, n_queries=n_queries)
     queries = await _create_queries(query_method, engineer, user_prompt)
 
     async def _search(query: str) -> List[SearchResult]:

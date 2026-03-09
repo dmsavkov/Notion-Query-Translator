@@ -45,6 +45,7 @@ class QueryTranslatorParams(BaseModel):
     model_name: str = "gemma27"
     model_temperature: float = 0.3
     max_tokens: int = 1500
+    n_queries: int = 4
     top_k: int = 5
     top_k_total: int = 8
     query_method: Literal["multi_query", "cot_decompose", "domain_decompose"] = "cot_decompose"

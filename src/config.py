@@ -59,21 +59,7 @@ class EvalJudgeResult(BaseModel):
     verdict: Optional[str] = None
 
 
-# ── Application Configuration ──────────────────────────────────────────────────
-
-class AppConfig(BaseModel):
-    """Essential application configuration. All other values remain hardcoded."""
-    model_config = ConfigDict(frozen=True)
-
-    default_model: str = "gemma27"
-    query_engineer_temperature: float = 0.3
-    multi_query_variants: int = 4
-    multi_query_max_tokens: int = 400
-    decomp_max_tokens: int = 400
-    max_trials: int = 3
-
-
-CONFIG = AppConfig()
+# ── Model Mapping ──────────────────────────────────────────────────────────────
 
 _MODEL_MAP = {
     "largest": "gemini-2.5-flash-lite",
