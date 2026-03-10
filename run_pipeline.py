@@ -57,11 +57,20 @@ class QueryTranslatorParams(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
+class RequestPlannerParams(BaseModel):
+    model_name: str = "gemma27"
+    model_temperature: float = 0.3
+    max_tokens: int = 500
+
+    model_config = ConfigDict(frozen=True)
+
+
 class AgentParams(BaseModel):
     """Per-node model and retrieval settings."""
     code_generator: CodeGeneratorParams = CodeGeneratorParams()
     reflector: ReflectorParams = ReflectorParams()
     query_translator: QueryTranslatorParams = QueryTranslatorParams()
+    request_planner: RequestPlannerParams = RequestPlannerParams()
 
     model_config = ConfigDict(frozen=True)
 

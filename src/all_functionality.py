@@ -275,12 +275,20 @@ def build_general_info(user_prompt: str, rag_context: str, request_plan: str) ->
     )
 
 
-async def generate_request_plan(user_prompt: str, rag_context: str) -> str:
-    """Bullet-point plan of what needs to be implemented — large model."""
+async def generate_request_plan(user_prompt: str, rag_context: str, chat_fn: partial) -> str:
+    """Bullet-point plan of what needs to be implemented — large model.
+    
+    Args:
+        user_prompt: The user's query/request.
+        rag_context: Retrieved context from RAG pipeline.
+        chat_fn: Optional partial function for async_chat_wrapper with pre-configured model/temperature/max_tokens.
+                If None, uses async_chat_wrapper with hardcoded defaults.
+    """
     prompt = build_generate_request_plan_prompt(user_prompt=user_prompt, rag_context=rag_context)
-    return await async_chat_wrapper(
+    
+    return await chat_fn(
         [{"role": "user", "content": prompt}],
-        json_output=False, max_tokens=500, temperature=0.3, model_size="gemma27",
+        json_output=False,
     )
 
 

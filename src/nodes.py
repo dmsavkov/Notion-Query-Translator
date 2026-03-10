@@ -104,7 +104,24 @@ async def retrieve_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[s
 
 
 async def plan_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
-    request_plan = await generate_request_plan(state["user_prompt"], state["retrieval_context"])
+    rp_params = config["configurable"]["agent_params"]["request_planner"]
+    model_name: str = rp_params["model_name"]
+    model_temperature: float = rp_params["model_temperature"]
+    max_tokens: int = rp_params["max_tokens"]
+
+    # Create a partial function with pre-configured parameters
+    plan_chat_fn = partial(
+        async_chat_wrapper,
+        model_size=model_name,
+        temperature=model_temperature,
+        max_tokens=max_tokens,
+    )
+
+    request_plan = await generate_request_plan(
+        state["user_prompt"],
+        state["retrieval_context"],
+        chat_fn=plan_chat_fn,
+    )
     general_info = build_general_info(state["user_prompt"], state["retrieval_context"], request_plan)
     return {"request_plan": request_plan, "general_info": general_info}
 
