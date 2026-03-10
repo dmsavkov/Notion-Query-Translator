@@ -100,7 +100,7 @@ async def retrieve_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[s
     else:
         retrieval_context = "\n\n".join(r.text for r in results)
         
-    return {"retrieval_context": retrieval_context}
+    return {"retrieval_context": retrieval_context, "queries": queries}
 
 
 async def plan_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:

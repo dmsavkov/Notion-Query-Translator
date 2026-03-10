@@ -1,6 +1,7 @@
 import asyncio
+import operator
 from dataclasses import asdict
-from typing import Any, Dict, List, Literal, Optional, TypedDict, cast
+from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict, cast
 import datetime
 
 from pydantic import BaseModel, ConfigDict
@@ -108,6 +109,7 @@ class PipelineState(TypedDict):
     trials: List[Dict[str, Any]]
     final_code: str
     passed: bool
+    queries: Annotated[List[str], operator.add]
 
 
 def route_after_codegen(state: PipelineState, config: RunnableConfig) -> str:
@@ -181,6 +183,7 @@ async def main() -> Dict[str, Dict[str, Any]]:
                 "trials": [],
                 "final_code": "",
                 "passed": False,
+                "queries": [],
             }
 
             async with semaphore:
