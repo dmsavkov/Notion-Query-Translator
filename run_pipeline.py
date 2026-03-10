@@ -29,7 +29,7 @@ def generate_thread_id(prefix: Optional[str] = None) -> str:
 class CodeGeneratorParams(BaseModel):
     model_name: str = "gemini-3.1-flash-lite-preview"
     model_temperature: float = 0.3
-    max_tokens: int = 4000
+    max_tokens: int = None
 
     model_config = ConfigDict(frozen=True)
 
@@ -45,7 +45,7 @@ class ReflectorParams(BaseModel):
 class QueryTranslatorParams(BaseModel):
     model_name: str = "gemma4"
     model_temperature: float = 0.3
-    max_tokens: int = 1500
+    max_tokens: int = None
     n_queries: int = 3
     top_k: int = 3
     top_k_total: int = 5
@@ -53,7 +53,7 @@ class QueryTranslatorParams(BaseModel):
     use_summarization: bool = True
     summarization_model_name: str = "gemma27"
     summarization_temperature: float = 0.2
-    summarization_max_tokens: int = 1500
+    summarization_max_tokens: int = 200
 
     model_config = ConfigDict(frozen=True)
 
@@ -61,7 +61,7 @@ class QueryTranslatorParams(BaseModel):
 class RequestPlannerParams(BaseModel):
     model_name: str = "gemma27"
     model_temperature: float = 0.3
-    max_tokens: int = 500
+    max_tokens: int = None
 
     model_config = ConfigDict(frozen=True)
 
