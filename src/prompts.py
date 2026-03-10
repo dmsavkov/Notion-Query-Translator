@@ -10,6 +10,19 @@ from typing import Dict, List, Optional
 
 # ── Static Prompt Constants ────────────────────────────────────────────────────
 
+CODEGEN_ENV_CONTEXT = (
+    "<notion_env_keys>\n"
+    "Available environment variables:\n"
+    "  NOTION_TOKEN                – API bearer token\n"
+    "  NOTION_TASKS_DATABASE_ID    – Database ID for tasks\n"
+    "  NOTION_TASKS_DATA_SOURCE_ID – Data source ID for tasks\n"
+    "  NOTION_PROJECTS_DATABASE_ID – Database ID for projects\n"
+    "  NOTION_PROJECTS_DATA_SOURCE_ID – Data source ID for projects\n"
+    "  NOTION_INBOX_PAGE_ID        – Target page ID for additions (for appending, inserting, updating content)\n"
+    "  NOTION_PAGE_ID              – Alternative page ID for operations\n"
+    "</notion_env_keys>"
+)
+
 GENERATE_TESTS_KEYS_CONTEXT = (
     "<notion_env_keys>\n"
     "CRITICAL: The solution module reads ALL secrets via os.getenv().\n"
@@ -343,6 +356,7 @@ def build_generate_code_prompt(
     return (
         f"{general_info}\n"
         f"{feedback_block}\n"
+        f"{CODEGEN_ENV_CONTEXT}\n\n"
         "<tests_to_pass>\n"
         f"{test_code}\n"
         "</tests_to_pass>\n\n"
