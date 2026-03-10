@@ -50,6 +50,9 @@ class QueryTranslatorParams(BaseModel):
     top_k_total: int = 8
     query_method: Literal["multi_query", "cot_decompose", "domain_decompose"] = "cot_decompose"
     use_summarization: bool = False
+    summarization_model_name: str = "gemma4"
+    summarization_temperature: float = 0.2
+    summarization_max_tokens: int = 1500
 
     model_config = ConfigDict(frozen=True)
 

@@ -87,7 +87,15 @@ async def retrieve_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[s
     results = results[:top_k_total]
     
     if use_summarization:
-        summarize_chat_fn = partial(async_chat_wrapper, model_size="gemma4", temperature=0.2)
+        summarization_model_name: str = qt_params["summarization_model_name"]
+        summarization_temperature: float = qt_params["summarization_temperature"]
+        summarization_max_tokens: int = qt_params["summarization_max_tokens"]
+        summarize_chat_fn = partial(
+            async_chat_wrapper,
+            model_size=summarization_model_name,
+            temperature=summarization_temperature,
+            max_tokens=summarization_max_tokens,
+        )
         retrieval_context = await summarize_retrieval_results(results, query=user_prompt, chat_fn=summarize_chat_fn)
     else:
         retrieval_context = "\n\n".join(r.text for r in results)
