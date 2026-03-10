@@ -461,6 +461,26 @@ def build_judge_category_prompt(
     )
 
 
+def build_concision_prompt(max_tokens: int) -> str:
+    """
+    Build a concise instruction to encourage token-aware response generation.
+    
+    Appended to messages to make the model self-restrict output rather than
+    relying on hard max_completion_tokens cutoff. Designed to be brief and
+    work with both plain text and JSON output modes.
+    
+    Args:
+        max_tokens: The target maximum token count for the response.
+        
+    Returns:
+        Concision instruction wrapped in XML tags (< 20 words).
+    """
+    return (
+        f"<concision>Response length must be under {max_tokens} tokens. "
+        f"Maintain concision and completeness.</concision>"
+    )
+
+
 # ── Evaluation Criteria ─────────────────────────────────────────────────────────────────
 # All categories use the same adversarial LLM judge.
 # "rag" is evaluated against the retrieved context text, like any other artifact.

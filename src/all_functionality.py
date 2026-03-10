@@ -24,6 +24,7 @@ from .config import (
 from .prompts import (
     EVAL_CRITERIA,
     build_analyze_requirements_prompt,
+    build_concision_prompt,
     build_generate_code_prompt,
     build_generate_request_plan_prompt,
     build_generate_tests_draft_prompt,
@@ -174,7 +175,7 @@ def _check_finish_reason(model_name: str, finish_reason: str) -> None:
         logger.warning(f"Non-stop finish_reason: {finish_reason} (response may be truncated)")
 
 async def async_chat_wrapper(
-    messages: list,
+    messages: list[Dict[str, str]],
     max_tokens: int = 2048,
     temperature: float = 1.0,
     json_output: bool = False,
@@ -186,13 +187,18 @@ async def async_chat_wrapper(
         logger.warning(f"Model size '{model_size}' not found in map, using as-is: {model_name}")
         
     msgs = list(messages)
+    
+    # Add concision instruction to encourage self-restriction rather than hard cutoff
+    if max_tokens and max_tokens > 0:
+        concision_instruction = build_concision_prompt(max_tokens)
+        msgs.append({"role": "user", "content": concision_instruction})
+    
     if json_output:
         if 'gemini' in model_name:
             response = await _async_client.chat.completions.parse(
                 model=model_name,
                 messages=msgs,
                 temperature=temperature,
-                max_completion_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
             _check_finish_reason(model_name, response.choices[0].finish_reason)
@@ -207,7 +213,6 @@ async def async_chat_wrapper(
         model=model_name,
         messages=msgs,
         temperature=temperature,
-        max_completion_tokens=max_tokens,
     )
     _check_finish_reason(model_name, response.choices[0].finish_reason)
     
