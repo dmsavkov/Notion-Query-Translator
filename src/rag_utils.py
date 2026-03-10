@@ -143,8 +143,6 @@ async def summarize_retrieval_results(
                 "content": prompt,
             }
         ],
-        max_tokens=1500,
-        temperature=0, # Crucial for deterministic extraction
     )
     return str(summary)
 
