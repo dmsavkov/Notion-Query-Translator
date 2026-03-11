@@ -22,39 +22,25 @@ solution: |
       
       # Schema for appending a Toggle block with nested children
       payload = {
-          "children":[
-              {
-                  "object": "block",
-                  "type": "toggle",
-                  "toggle": {
-                      "rich_text":[
-                          {
-                              "type": "text",
-                              "text": {
-                                  "content": title
-                              }
-                          }
-                      ],
-                      "children":[
-                          {
-                              "object": "block",
-                              "type": "paragraph",
-                              "paragraph": {
-                                  "rich_text":[
-                                      {
-                                          "type": "text",
-                                          "text": {
-                                              "content": content
-                                          }
-                                      }
-                                  ]
-                              }
-                          }
-                      ]
-                  }
-              }
-          ]
-      }
+        "children": [
+            {
+                "object": "block",
+                "type": "toggle",
+                "toggle": {
+                    "rich_text": [{"type": "text", "text": {"content": toggle_title}}], # The Header
+                    "children": [ # <--- THIS is what the statement is looking for
+                        {
+                            "object": "block",
+                            "type": "paragraph",
+                            "paragraph": {
+                                "rich_text": [{"type": "text", "text": {"content": toggle_content}}] # The Inside
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    }
       
       response = requests.patch(url, headers=HEADERS, json=payload)
       return response.json()
