@@ -73,3 +73,4 @@ correct_statements:
   - "Title property uses structure: {'Name': {'title': [{'text': {'content': '<value>'}}]}}."
   - "Select property (Importance) uses structure: {'Importance': {'select': {'name': '<value>'}}}."
   - "Relation property (Project) uses structure: {'Project': {'relation': [{'id': '<page_id>'}]}}."
+  - "Date property (Due Date) uses structure: {'Due Date': {'date': {'start': '<YYYY-MM-DD>'}}}."
