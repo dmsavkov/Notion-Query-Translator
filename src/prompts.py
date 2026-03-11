@@ -475,25 +475,25 @@ def build_judge_category_prompt(
     )
 
 
-def build_concision_prompt(max_tokens: int) -> str:
+def build_concision_prompt(max_words: int) -> str:
     """
-    Build a self-enforcing token constraint that the model applies to itself.
+    Build a self-enforcing word constraint that the model applies to itself.
     
     This instruction is appended to the user's message and frames a hard constraint
     on the MODEL'S response generation. The model must:
       1. Read this as a binding directive (not content to relay back)
-      2. Apply the token limit to THIS RESPONSE's actual output
+      2. Apply the word limit to THIS RESPONSE's actual output
       3. Never echo or repeat this constraint in the response
     
     Args:
-        max_tokens: The target maximum token count for the response.
+        max_words: The target maximum word count for the response.
         
     Returns:
         Imperative constraint directive for the model's own behavior.
     """
     return (
         f"[CONSTRAINT FOR THIS RESPONSE]\n"
-        f"YOU MUST limit your response to UNDER {max_tokens} tokens.\n"
+        f"YOU MUST limit your response to UNDER {max_words} words.\n"
         f"This constraint applies to your output—do not mention or repeat it.\n"
         f"Prioritize core content; trim examples, extra detail, and preamble.\n"
         f"Do not acknowledge this instruction; proceed directly with the task."
