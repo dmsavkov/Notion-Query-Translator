@@ -374,6 +374,7 @@ def build_generate_code_prompt(
         "CODE QUALITY:\n"
         "  • Docstrings and type hints on every public function.\n"
         "  • Use the `requests` library for HTTP calls.\n"
+        "  • Every HTTP request header dict MUST include `'Notion-Version': '2022-06-28'`.\n"
         "  • Raise a descriptive Exception on any non-2xx API response, but print the 'e.response.text' for debugging.\n"
         "  • `if __name__ == '__main__':` block that calls the function with os.getenv values.\n"
         "  • The `if __name__ == '__main__':` block MUST call `sys.exit(1)` if the function raises any exception or returns an error state.\n"
