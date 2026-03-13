@@ -1,0 +1,110 @@
+task_id: create_task_with_blocks_and_relation
+task: "Create a new task titled 'Architecture Review' with the project of name 'TEST PROJECT', then link the new task to that project. Inside the task page, add a checklist with two items: 'Review Postgres' and 'Review MongoDB'."
+properties:
+  title: "Architecture Review"
+  project_name: "TEST PROJECT"
+  checklist_items:
+    - "Review Postgres"
+    - "Review MongoDB"
+
+solution: |
+  def create_task_with_blocks_and_relation(tasks_database_id, projects_database_id, project_name="TEST PROJECT"):
+      import os
+      import requests
+      from dotenv import load_dotenv
+
+      load_dotenv()
+      notion_token = os.getenv("NOTION_TOKEN")
+      headers = {
+          "Authorization": f"Bearer {notion_token}",
+          "Content-Type": "application/json",
+          "Notion-Version": "2022-06-28",
+      }
+
+      # 1) Resolve project id from Projects database by Name.
+      project_query_url = f"https://api.notion.com/v1/databases/{projects_database_id}/query"
+      project_query_payload = {
+          "filter": {
+              "property": "Name",
+              "title": {
+                  "equals": project_name
+              }
+          },
+          "page_size": 1
+      }
+      project_query_resp = requests.post(project_query_url, headers=headers, json=project_query_payload)
+      project_results = project_query_resp.json().get("results", [])
+      if not project_results:
+          return {"created": False, "reason": "project_not_found"}
+
+      resolved_project_id = project_results[0]["id"]
+
+      # 2) Create one page payload containing both properties and nested blocks.
+      create_url = "https://api.notion.com/v1/pages"
+      create_payload = {
+          "parent": {
+              "database_id": tasks_database_id
+          },
+          "properties": {
+              "Name": {
+                  "title": [
+                      {
+                          "type": "text",
+                          "text": {
+                              "content": "Architecture Review"
+                          }
+                      }
+                  ]
+              },
+              "Project": {
+                  "relation": [
+                      {
+                          "id": resolved_project_id
+                      }
+                  ]
+              }
+          },
+          "children": [
+              {
+                  "object": "block",
+                  "type": "to_do",
+                  "to_do": {
+                      "rich_text": [
+                          {
+                              "type": "text",
+                              "text": {
+                                  "content": "Review Postgres"
+                              }
+                          }
+                      ],
+                      "checked": False
+                  }
+              },
+              {
+                  "object": "block",
+                  "type": "to_do",
+                  "to_do": {
+                      "rich_text": [
+                          {
+                              "type": "text",
+                              "text": {
+                                  "content": "Review MongoDB"
+                              }
+                          }
+                      ],
+                      "checked": False
+                  }
+              }
+          ]
+      }
+
+      create_resp = requests.post(create_url, headers=headers, json=create_payload)
+      return create_resp.json()
+
+correct_statements:
+  - "The first request is POST https://api.notion.com/v1/databases/{projects_database_id}/query to resolve the id for project Name == 'TEST PROJECT'."
+  - "Project lookup filter is exactly {'filter': {'property': 'Name', 'title': {'equals': 'TEST PROJECT'}}} with page_size: 1."
+  - "Page creation is a separate second request to POST https://api.notion.com/v1/pages, executed only after project id resolution."
+  - "Project relation in create payload is exactly {'Project': {'relation': [{'id': '<resolved_project_id>'}]}}."
+  - "Checklist blocks are included in top-level 'children' of the same page-creation payload; no PATCH /blocks/{id}/children call is used."
+  - "Both children are to_do blocks and their rich_text contents are exactly 'Review Postgres' and 'Review MongoDB' in that order."

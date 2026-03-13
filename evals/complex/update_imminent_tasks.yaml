@@ -1,0 +1,60 @@
+task_id: update_imminent_tasks
+task: "Find all tasks that are due in exactly 3 days and bump their 'Intensity' to 8."
+properties:
+  due_in_days: 3
+  target_intensity: "8"
+
+solution: |
+  def update_imminent_tasks(tasks_database_id):
+      import os
+      import requests
+      from datetime import datetime, timedelta
+      from dotenv import load_dotenv
+
+      load_dotenv()
+      notion_token = os.getenv("NOTION_TOKEN")
+      headers = {
+          "Authorization": f"Bearer {notion_token}",
+          "Content-Type": "application/json",
+          "Notion-Version": "2022-06-28",
+      }
+
+      target_date = (datetime.now().date() + timedelta(days=3)).isoformat()
+
+      query_url = f"https://api.notion.com/v1/databases/{tasks_database_id}/query"
+      query_payload = {
+          "filter": {
+              "property": "Due Date",
+              "date": {
+                  "equals": target_date
+              }
+          }
+      }
+      query_resp = requests.post(query_url, headers=headers, json=query_payload)
+      pages = query_resp.json().get("results", [])
+
+      updated = 0
+      for page in pages:
+          page_id = page["id"]
+          patch_url = f"https://api.notion.com/v1/pages/{page_id}"
+          patch_payload = {
+              "properties": {
+                  "Intensity": {
+                      "select": {
+                          "name": "8"
+                      }
+                  }
+              }
+          }
+          requests.patch(patch_url, headers=headers, json=patch_payload)
+          updated += 1
+
+      return {"target_date": target_date, "updated": updated}
+
+correct_statements:
+  - "Python datetime arithmetic computes the target date as current date plus timedelta(days=3)."
+  - "The computed date is converted to ISO format 'YYYY-MM-DD' before building the query."
+  - "Tasks are fetched via POST https://api.notion.com/v1/databases/{database_id}/query."
+  - "The query filter shape is exactly {'property': 'Due Date', 'date': {'equals': '<calculated_date>'}}."
+  - "Each matched page is updated with PATCH https://api.notion.com/v1/pages/{page_id}."
+  - "Intensity update uses exactly {'properties': {'Intensity': {'select': {'name': '8'}}}}."

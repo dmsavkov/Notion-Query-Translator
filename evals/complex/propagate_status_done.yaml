@@ -1,0 +1,87 @@
+task_id: propagate_status_done
+task: "Check the task with name 'TEST PROJECT'. If its Status is 'Done', find all tasks it is 'Blocking' and update their Status to 'Done' as well."
+properties:
+  task_name: "TEST PROJECT"
+
+solution: |
+  def propagate_status_done(tasks_database_id, task_name="TEST PROJECT"):
+      import os
+      import requests
+      from dotenv import load_dotenv
+
+      load_dotenv()
+      notion_token = os.getenv("NOTION_TOKEN")
+      headers = {
+          "Authorization": f"Bearer {notion_token}",
+          "Content-Type": "application/json",
+          "Notion-Version": "2022-06-28",
+      }
+
+      # 1) Find the target task by Name only.
+      task_query_url = f"https://api.notion.com/v1/databases/{tasks_database_id}/query"
+      task_query_payload = {
+          "filter": {
+              "property": "Name",
+              "title": {
+                  "equals": task_name
+              }
+          },
+          "page_size": 1
+      }
+      task_query_resp = requests.post(task_query_url, headers=headers, json=task_query_payload)
+      task_results = task_query_resp.json().get("results", [])
+      if not task_results:
+          return {"updated": 0, "reason": "task_not_found"}
+
+      task_id = task_results[0]["id"]
+
+      # 2) Retrieve full task page and check status.
+      task_page_url = f"https://api.notion.com/v1/pages/{task_id}"
+      task_page_resp = requests.get(task_page_url, headers=headers)
+      task_page = task_page_resp.json()
+
+      status_name = (
+          task_page
+          .get("properties", {})
+          .get("Status", {})
+          .get("status", {})
+          .get("name")
+      )
+      if status_name != "Done":
+          return {"updated": 0, "reason": "parent_not_done"}
+
+      # 3) Extract blocked ids from Blocking relation and propagate Done status.
+      blocking_relations = (
+          task_page
+          .get("properties", {})
+          .get("Blocking", {})
+          .get("relation", [])
+      )
+      blocked_ids = [item["id"] for item in blocking_relations if "id" in item]
+
+      updated = 0
+      for blocked_task_id in blocked_ids:
+          patch_url = f"https://api.notion.com/v1/pages/{blocked_task_id}"
+          patch_payload = {
+              "properties": {
+                  "Status": {
+                      "status": {
+                          "name": "Done"
+                      }
+                  }
+              }
+          }
+          requests.patch(patch_url, headers=headers, json=patch_payload)
+          updated += 1
+
+      return {"updated": updated, "blocked_task_ids": blocked_ids}
+
+correct_statements:
+  - "The first request is POST https://api.notion.com/v1/databases/{tasks_database_id}/query to find the parent task by Name == 'TEST PROJECT'."
+  - "The database query filter uses only Name-title equality: {'filter': {'property': 'Name', 'title': {'equals': 'TEST PROJECT'}}}; no Project relation filter is present."
+  - "The lookup constrains parent candidate selection with page_size: 1 and uses results[0].id as task_id."
+  - "The parent task details are fetched via GET https://api.notion.com/v1/pages/{task_id}."
+  - "Status gate is evaluated from properties.Status.status.name and propagation happens only when the value is exactly 'Done'."
+  - "Blocked targets are read from properties.Blocking.relation and converted to a flat list of ids."
+  - "A PATCH call is made per blocked id to https://api.notion.com/v1/pages/{blocked_task_id}."
+  - "PATCH payload is exactly {'properties': {'Status': {'status': {'name': 'Done'}}}}."

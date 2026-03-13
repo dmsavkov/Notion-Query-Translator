@@ -1,0 +1,73 @@
+task_id: vague_emergency_escalation
+task: "I have an emergency. Find tasks that are completely unstarted but extremely urgent, and mark them to execute right now."
+properties:
+  inferred_mapping:
+    unstarted_status: "Not started"
+    extremely_urgent_urgency: "4"
+    execute_right_now: true
+
+solution: |
+  def vague_emergency_escalation(tasks_database_id):
+      import os
+      import requests
+      from dotenv import load_dotenv
+
+      load_dotenv()
+      notion_token = os.getenv("NOTION_TOKEN")
+      headers = {
+          "Authorization": f"Bearer {notion_token}",
+          "Content-Type": "application/json",
+          "Notion-Version": "2022-06-28",
+      }
+
+      # Semantic mapping from vague language to schema values.
+      status_value = "Not started"
+      urgency_value = "4"
+
+      query_url = f"https://api.notion.com/v1/databases/{tasks_database_id}/query"
+      query_payload = {
+          "filter": {
+              "and": [
+                  {
+                      "property": "Status",
+                      "status": {
+                          "equals": status_value
+                      }
+                  },
+                  {
+                      "property": "Urgency",
+                      "select": {
+                          "equals": urgency_value
+                      }
+                  }
+              ]
+          }
+      }
+
+      query_resp = requests.post(query_url, headers=headers, json=query_payload)
+      pages = query_resp.json().get("results", [])
+
+      updated_ids = []
+      for page in pages:
+          page_id = page["id"]
+          patch_url = f"https://api.notion.com/v1/pages/{page_id}"
+          patch_payload = {
+              "properties": {
+                  "Do Now": {
+                      "checkbox": True
+                  }
+              }
+          }
+          requests.patch(patch_url, headers=headers, json=patch_payload)
+          updated_ids.append(page_id)
+
+      return {"updated": len(updated_ids), "page_ids": updated_ids}
+
+correct_statements:
+  - "The implementation resolves vague terms using this exact mapping: 'unstarted' -> Status equals 'Not started', 'extremely urgent' -> Urgency equals '4', and 'execute right now' -> Do Now checkbox True."
+  - "Candidate pages are retrieved via POST https://api.notion.com/v1/databases/{database_id}/query."
+  - "The query payload filter is a compound {'and': [...]} with one Status predicate and one Urgency predicate."
+  - "The Status predicate uses property 'Status' with {'status': {'equals': 'Not started'}}."
+  - "The Urgency predicate uses property 'Urgency' with {'select': {'equals': '4'}}."
+  - "Each matching page is updated through PATCH https://api.notion.com/v1/pages/{page_id}."
+  - "The update body sets Do Now using {'properties': {'Do Now': {'checkbox': True}}}."
