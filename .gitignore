@@ -97,6 +97,10 @@ Thumbs.db
 *.npy
 *.npz
 
+# RAG experiment files
+rag_exp/
+rag_experimenting.ipynb
+
 # Vector stores and embeddings (if large)
 vectors/
 models/
