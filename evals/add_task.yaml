@@ -71,6 +71,6 @@ correct_statements:
   - "Header 'Notion-Version: 2022-06-28' is required on every request."
   - "The parent database is specified as: {'parent': {'database_id': '<id>'}} at the top level of the body."
   - "Title property uses structure: {'Name': {'title': [{'text': {'content': '<value>'}}]}}."
-  - "Select property (Importance) uses structure: {'Importance': {'select': {'name': '<value>'}}}."
+  - "Select property (Importance) uses structure: {'Importance': {'select': {'name': '<value>'}}} OR {'Importance': {'select': {'id': '<option-id>'}}}."
   - "Relation property (Project) uses structure: {'Project': {'relation': [{'id': '<page_id>'}]}}."
   - "Date property (Due Date) uses structure: {'Due Date': {'date': {'start': '<YYYY-MM-DD>'}}}."

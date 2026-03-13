@@ -40,7 +40,7 @@ solution: |
 correct_statements:
   - "Endpoint is GET https://api.notion.com/v1/blocks/{page_id}/children for retrieving a page's content."
   - "Header 'Notion-Version: 2022-06-28' is required on every request."
-  - "Pagination limit is controlled via the 'page_size' query parameter (max 100)."
+  - "To retrieve all blocks, use a pagination loop: set 'page_size' query parameter (max 100 per request) and fetch pages until 'has_more' is false or 'next_cursor' is null."
   - "Response results are under the 'results' key as an array of block objects."
   - "Each block has a 'type' field (e.g. 'paragraph', 'heading_1', 'to_do') and a matching nested key with its content."
-  - "Subsequent pages are fetched using 'start_cursor' from the 'next_cursor' field in the response."
+  - "For subsequent pages, pass the previous response's 'next_cursor' value as the 'start_cursor' query parameter in the next request."
