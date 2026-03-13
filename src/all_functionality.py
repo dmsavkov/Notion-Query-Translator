@@ -9,7 +9,7 @@ import re
 import subprocess
 import sys
 from functools import partial
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -40,14 +40,38 @@ from .rag_utils import (
 logger = logging.getLogger(__name__)
 
 
-def load_eval_tasks(evals_dir: str = "evals") -> Dict[str, Dict[str, Any]]:
-    """Load evaluation tasks from YAML files. Returns {} if directory not found."""
+def load_eval_tasks(
+    evals_dir: str = "evals",
+    case_type: Literal["simple", "complex", "all"] = "simple"
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Load evaluation tasks from YAML files.
+    
+    Args:
+        evals_dir: Base evaluation directory (e.g., "evals").
+        case_type: Which eval case suite to load.
+                  - "simple": evals/*.yaml only (top-level)
+                  - "complex": evals/complex/*.yaml only
+                  - "all": both simple and complex evals
+    
+    Returns:
+        Dict of task_id -> task_data. Returns {} if directory not found.
+    """
     tasks: Dict[str, Dict[str, Any]] = {}
-    for yaml_path in sorted(glob.glob(os.path.join(evals_dir, "*.yaml"))):
-        stem = Path(yaml_path).stem
-        with open(yaml_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-        tasks[stem] = data if data else {}
+    
+    glob_patterns = []
+    if case_type in ("simple", "all"):
+        glob_patterns.append(os.path.join(evals_dir, "*.yaml"))
+    if case_type in ("complex", "all"):
+        glob_patterns.append(os.path.join(evals_dir, "complex", "*.yaml"))
+    
+    for pattern in glob_patterns:
+        for yaml_path in sorted(glob.glob(pattern)):
+            stem = Path(yaml_path).stem
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            tasks[stem] = data if data else {}
+    
     return tasks
 
 def extract_json_from_response(response_content: Optional[str]) -> Dict[str, Any]:
