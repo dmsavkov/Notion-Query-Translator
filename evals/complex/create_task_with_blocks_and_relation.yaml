@@ -1,14 +1,14 @@
 task_id: create_task_with_blocks_and_relation
-task: "Create a new task titled 'Architecture Review' with the project of name 'TEST PROJECT', then link the new task to that project. Inside the task page, add a checklist with two items: 'Review Postgres' and 'Review MongoDB'."
+task: "Create a new task titled 'Architecture Review' with the project of name 'AI Research', then link the new task to that project. Inside the task page, add a checklist with two items: 'Review Postgres' and 'Review MongoDB'."
 properties:
   title: "Architecture Review"
-  project_name: "TEST PROJECT"
+  project_name: "AI Research"
   checklist_items:
     - "Review Postgres"
     - "Review MongoDB"
 
 solution: |
-  def create_task_with_blocks_and_relation(tasks_database_id, projects_database_id, project_name="TEST PROJECT"):
+  def create_task_with_blocks_and_relation(tasks_database_id, projects_database_id, project_name="AI Research"):
       import os
       import requests
       from dotenv import load_dotenv
@@ -27,7 +27,7 @@ solution: |
           "filter": {
               "property": "Name",
               "title": {
-                  "equals": project_name
+                  "equals": "AI Research"
               }
           },
           "page_size": 1
@@ -103,7 +103,7 @@ solution: |
 
 correct_statements:
   - "The first request is POST https://api.notion.com/v1/databases/{projects_database_id}/query to resolve the id for project Name == 'TEST PROJECT'."
-  - "Project lookup filter is exactly {'filter': {'property': 'Name', 'title': {'equals': 'TEST PROJECT'}}} with page_size: 1."
+  - "Project lookup filter is exactly {'filter': {'property': 'Name', 'title': {'equals': 'AI Research'}}} with page_size: 1."
   - "Page creation is a separate second request to POST https://api.notion.com/v1/pages, executed only after project id resolution."
   - "Project relation in create payload is exactly {'Project': {'relation': [{'id': '<resolved_project_id>'}]}}."
   - "Checklist blocks are included in top-level 'children' of the same page-creation payload; no PATCH /blocks/{id}/children call is used."

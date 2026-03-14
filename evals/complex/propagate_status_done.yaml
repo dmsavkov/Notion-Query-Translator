@@ -1,10 +1,10 @@
 task_id: propagate_status_done
-task: "Check the task with name 'TEST PROJECT'. If its Status is 'Done', find all tasks it is 'Blocking' and update their Status to 'Done' as well."
+task: "Check the task with name 'New problem'. If its Status is 'Done', find all tasks it is 'Blocking' and update their Status to 'Done' as well."
 properties:
-  task_name: "TEST PROJECT"
+  task_name: "New problem"
 
 solution: |
-  def propagate_status_done(tasks_database_id, task_name="TEST PROJECT"):
+  def propagate_status_done(tasks_database_id, task_name="New problem"):
       import os
       import requests
       from dotenv import load_dotenv
@@ -77,8 +77,8 @@ solution: |
       return {"updated": updated, "blocked_task_ids": blocked_ids}
 
 correct_statements:
-  - "The first request is POST https://api.notion.com/v1/databases/{tasks_database_id}/query to find the parent task by Name == 'TEST PROJECT'."
-  - "The database query filter uses only Name-title equality: {'filter': {'property': 'Name', 'title': {'equals': 'TEST PROJECT'}}}; no Project relation filter is present."
+  - "The first request is POST https://api.notion.com/v1/databases/{tasks_database_id}/query to find the parent task by Name == 'New problem'."
+  - "The database query filter uses only Name-title equality: {'filter': {'property': 'Name', 'title': {'equals': 'New problem'}}}; no Project relation filter is present."
   - "The lookup constrains parent candidate selection with page_size: 1 and uses results[0].id as task_id."
   - "The parent task details are fetched via GET https://api.notion.com/v1/pages/{task_id}."
   - "Status gate is evaluated from properties.Status.status.name and propagation happens only when the value is exactly 'Done'."
