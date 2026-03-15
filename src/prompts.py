@@ -19,6 +19,8 @@ CODEGEN_ENV_CONTEXT = (
     "  NOTION_PROJECTS_DATABASE_ID – Database ID for projects\n"
     "  NOTION_PROJECTS_DATA_SOURCE_ID – Data source ID for projects\n"
     "  NOTION_INBOX_PAGE_ID        – Target page ID for additions (for appending, inserting, updating content)\n"
+    "  ID_PROJECT_PAGE_ID           – Project page ID for testing\n"
+    "  ID_UPDATE_PAGE_ID            – Page ID for testing updates\n"
     "</notion_env_keys>"
 )
 
