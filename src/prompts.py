@@ -373,6 +373,7 @@ def build_generate_code_prompt(
         "      token = os.getenv('NOTION_TOKEN')  # inside function body\n"
         "  • FORBIDDEN: ANY hardcoded string that looks like a token, UUID, or database ID.\n"
         "  • FORBIDDEN: Accepting a NotionKeys dataclass or dict of secrets as a parameter.\n\n"
+        "  • FORBIDDEN: Calling `sys.exit(0)` anywhere in the module — do not use zero exit codes.\n\n"
         "CODE QUALITY:\n"
         "  • Docstrings and type hints on every public function.\n"
         "  • Use the `requests` library for HTTP calls.\n"
