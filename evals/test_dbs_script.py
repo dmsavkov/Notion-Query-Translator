@@ -137,6 +137,15 @@ def create_tasks_db(projects_db_id: str) -> str:
         "title": [{"type": "text", "text": {"content": "Sandbox Tasks"}}],
         "properties": {
             "Name": {"title": {}},
+            "Status": {
+                "select": {
+                    "options": [
+                        {"name": "Not started", "color": "default"},
+                        {"name": "In progress", "color": "blue"},
+                        {"name": "Done", "color": "green"}
+                    ]
+                }
+            },
             "Due Date": {"date": {}},
             "Last Reviewed": {"date": {}}, 
             "Importance": {
@@ -254,6 +263,17 @@ def provision_infrastructure():
         print(f"Created Tasks DB: {tasks_db_id}")
     else:
         print(f"Located Tasks DB: {tasks_db_id}")
+        
+        # Check if schema is complete
+        print("  Checking schema integrity...")
+        tasks_schema = get_database_schema(tasks_db_id)
+        if "Status" not in tasks_schema:
+            print("  ⚠️  Schema incomplete (missing Status property)")
+            print("  Deleting and recreating database...")
+            delete_database(tasks_db_id)
+            time.sleep(1)
+            tasks_db_id = create_tasks_db(projects_db_id)
+            print(f"  Recreated Tasks DB: {tasks_db_id}")
 
     # Inspect available properties in tasks database
     print("\n📋 Inspecting Tasks Database Schema...")
@@ -277,6 +297,7 @@ def provision_infrastructure():
     # 2. Target ID Update Task
     id_update_page_id = create_page(tasks_db_id, {
         "Name": {"title": [{"text": {"content": "ID UPDATE PAGE"}}]},
+        "Status": {"select": {"name": "Not started"}},
         "Project": {"relation": [{"id": id_project_page_id}]}
     })
 
