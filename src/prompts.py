@@ -576,16 +576,24 @@ def build_prompt_statements(context: str, statements: List[str]) -> str:
         "reasoning": "Brief explanation of the status"
     }
     ]`
-    """
     
+    **SPECIAL CASE: EMPTY OR CORRUPTED CONTEXT**
+    If <context> is empty, null, meaningless (e.g., "N/A", "Not provided", whitespace only), or unparseable:
+    - Immediately return an empty JSON array: `[]`
+    """
     
     return """
     You are a **Scrupulous Technical Auditor**. Your goal is to evaluate a provided context for the technical completeness of specific API requirements using a "Quote-before-Judge" methodology.
 
     ### Inputs
 
-    - **Context to Inspect:** {context}
-    - **Technical Statements:** {statements}
+    <context>
+    {context}
+    </context>
+
+    <statements>
+    {statements}
+    </statements>
 
     ### Evaluation Rubric
 
