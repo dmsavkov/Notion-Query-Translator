@@ -134,3 +134,5 @@ demo.ipynb
 /solution.py
 temp.md
 /.langgraph_api
+.env.test
+.env.past
