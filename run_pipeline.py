@@ -78,7 +78,7 @@ class AgentParams(BaseModel):
 
 class PipelineParams(BaseModel):
     """Dynamic parameters used during pipeline execution."""
-    minimal: bool = True
+    minimal: bool = False
     max_trials: int = 3
 
     model_config = ConfigDict(frozen=True)
@@ -89,7 +89,7 @@ class StaticParams(BaseModel):
     evals_dir: str = "evals"
     output_dir: str = "evaluation_results"
     sqlite_saver_path: str = "data/checkpoints.sqlite"
-    case_type: Literal["simple", "complex", "all"] = "simple"
+    case_type: Literal["simple", "complex", "all"] = "complex"
     
     model_config = ConfigDict(frozen=True)
 
