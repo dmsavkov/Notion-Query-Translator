@@ -170,6 +170,14 @@ def create_tasks_db(projects_db_id: str) -> str:
         print(f"\n❌ ERROR creating tasks database")
         print(f"Status Code: {response.status_code}")
         print(f"Response body: {response.text}\n")
+    else:
+        # Check what properties were actually created
+        created_db = response.json()
+        created_properties = {k: v.get("type") for k, v in created_db.get("properties", {}).items()}
+        print(f"\n✓ Database created with properties: {list(created_properties.keys())}")
+        if "Status" not in created_properties:
+            print(f"⚠️  WARNING: Status property NOT present in created database!")
+            print(f"   This may indicate Notion rejected the property definition")
     
     response.raise_for_status()
     return response.json()["id"]
