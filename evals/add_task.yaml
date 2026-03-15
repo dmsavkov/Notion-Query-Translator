@@ -1,12 +1,12 @@
-task: Add a new task into my Notion Tasks database with the title "Add_task_test", date today, importance of 4 and project ID "31bcb17dcc4480dcb042f86e6a70bb70".
+task: Add a new task into my Notion Tasks database with the title "Add_task_test", date today, importance of 4 and project ID from the ID_PROJECT_PAGE_ID environment variable.
 properties:
   title: "Add_task_test"
   date: "today"
   importance: 4
-  project_id: "31bcb17dcc4480dcb042f86e6a70bb70"
+  project_id: "${ID_PROJECT_PAGE_ID}"
 
 solution: |
-  def add_new_task(database_id, title, importance, project_id):
+  def add_new_task(database_id, title, importance):
       import requests
       import os
       from datetime import datetime
@@ -14,6 +14,7 @@ solution: |
       
       load_dotenv()
       NOTION_TOKEN = os.getenv("NOTION_TOKEN")
+      project_id = os.getenv("ID_PROJECT_PAGE_ID")
       HEADERS = {
           "Authorization": f"Bearer {NOTION_TOKEN}",
           "Content-Type": "application/json",
@@ -64,7 +65,7 @@ solution: |
       return response.json()
 
   # Example usage:
-  # add_new_task(os.getenv("NOTION_TASKS_DATABASE_ID"), "Add_task_test", 4, "31bcb17dcc4480dcb042f86e6a70bb70")
+  # add_new_task(os.getenv("NOTION_TASKS_DATABASE_ID"), "Add_task_test", 4)
 
 correct_statements:
   - "Endpoint is POST https://api.notion.com/v1/pages for creating a new page (task) in a database."
