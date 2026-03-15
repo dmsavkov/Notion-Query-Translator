@@ -30,7 +30,7 @@ solution: |
               "and": [
                   {
                       "property": "Status",
-                      "status": {
+                      "select": {
                           "equals": status_value
                       }
                   },
@@ -67,7 +67,7 @@ correct_statements:
   - "The implementation resolves vague terms using this exact mapping: 'unstarted' -> Status equals 'Not started', 'extremely urgent' -> Urgency equals '4', and 'execute right now' -> Do Now checkbox True."
   - "Candidate pages are retrieved via POST https://api.notion.com/v1/databases/{database_id}/query."
   - "The query payload filter is a compound {'and': [...]} with one Status predicate and one Urgency predicate."
-  - "The Status predicate uses property 'Status' with {'status': {'equals': 'Not started'}}."
+  - "The Status predicate uses property 'Status' with {'select': {'equals': 'Not started'}}."
   - "The Urgency predicate uses property 'Urgency' with {'select': {'equals': '4'}}."
   - "Each matching page is updated through PATCH https://api.notion.com/v1/pages/{page_id}."
   - "The update body sets Do Now using {'properties': {'Do Now': {'checkbox': True}}}."
