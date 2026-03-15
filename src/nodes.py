@@ -20,6 +20,7 @@ from .all_functionality import (
     write_solution,
 )
 from .config import SearchResult
+from .hardcoded_contexts import ContextUsed, get_hardcoded_context
 from .rag_utils import (
     QueryEngineer,
     query_qdrant,
@@ -55,6 +56,13 @@ async def _create_queries(
 # ── LangGraph Node Wrappers ───────────────────────────────────────────────────────────
 
 async def retrieve_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    static_params = config["configurable"]["static_params"]
+    context_used: ContextUsed = static_params["context_used"]
+
+    if context_used != "dynamic":
+        retrieval_context = get_hardcoded_context(context_used)
+        return {"retrieval_context": retrieval_context, "queries": []}
+
     user_prompt = state["user_prompt"]
     qt_params = config["configurable"]["agent_params"]["query_translator"]
     top_k: int = qt_params["top_k"]
@@ -104,12 +112,21 @@ async def retrieve_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[s
 
 
 async def plan_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    static_params = config["configurable"]["static_params"]
+    enable_planning: bool = static_params["enable_planning"]
+
+    if not enable_planning:
+        # Planning disabled: build general_info without LLM planning
+        request_plan = ""
+        general_info = build_general_info(state["user_prompt"], state["retrieval_context"], request_plan)
+        return {"request_plan": request_plan, "general_info": general_info}
+
+    # Planning enabled: run full planning
     rp_params = config["configurable"]["agent_params"]["request_planner"]
     model_name: str = rp_params["model_name"]
     model_temperature: float = rp_params["model_temperature"]
     max_tokens: int = rp_params["max_tokens"]
 
-    # Create a partial function with pre-configured parameters
     plan_chat_fn = partial(
         async_chat_wrapper,
         model_size=model_name,
