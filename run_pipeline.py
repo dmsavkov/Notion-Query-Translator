@@ -18,6 +18,7 @@ from src.nodes import (
     retrieve_node,
 )
 from src.all_functionality import load_eval_tasks
+from evals.test_dbs_script import provision_infrastructure
 
 
 def generate_thread_id(prefix: Optional[str] = None) -> str:
@@ -149,6 +150,10 @@ def build_pipeline():
 
 
 async def main() -> Dict[str, Dict[str, Any]]:
+    print("Setting up test infrastructure...")
+    provision_infrastructure()
+    print("Test infrastructure ready.\n")
+    
     pipeline_params = PipelineParams()
     static_params = StaticParams()
     agent_params = AgentParams()
