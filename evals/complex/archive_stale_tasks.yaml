@@ -1,5 +1,5 @@
 task_id: archive_stale_tasks
-task: "Find tasks where the 'Created' date is older than 30 days. Archive them and add a comment to each saying 'This task is stale. Archived.'"
+task: "Find tasks where the 'Last Reviewed' date is older than 30 days. Archive them and add a comment to each saying 'This task is stale. Archived.'"
 properties:
   stale_days: 30
   archive: true
@@ -25,7 +25,7 @@ solution: |
       query_url = f"https://api.notion.com/v1/databases/{tasks_database_id}/query"
       query_payload = {
           "filter": {
-              "property": "Created",
+              "property": "Last Reviewed",
               "date": {
                   "on_or_before": cutoff_date
               }
@@ -65,7 +65,7 @@ solution: |
 
 correct_statements:
   - "Python datetime arithmetic computes a threshold date as current date minus timedelta(days=30)."
-  - "The stale filter uses POST https://api.notion.com/v1/databases/{database_id}/query with {'property': 'Created', 'date': {'on_or_before': '<calculated_date>'}}."
+  - "The query filters tasks where 'Last Reviewed' property is on_or_before the cutoff using POST https://api.notion.com/v1/databases/{database_id}/query with {'property': 'Last Reviewed', 'date': {'on_or_before': '<calculated_date>'}}."
   - "For every matched page id, PATCH https://api.notion.com/v1/pages/{page_id} is called with top-level body {'archived': True}."
   - "After archiving each page, a second call posts a comment via POST https://api.notion.com/v1/comments."
   - "Comment payload uses {'parent': {'page_id': '<page_id>'}, 'rich_text': [{'type': 'text', 'text': {'content': 'This task is stale. Archived.'}}]}."

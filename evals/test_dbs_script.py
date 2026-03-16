@@ -189,7 +189,31 @@ def create_tasks_db(projects_db_id: str) -> str:
             print(f"   This may indicate Notion rejected the property definition")
     
     response.raise_for_status()
-    return response.json()["id"]
+    created_db_id = response.json()["id"]
+    
+    # Add Blocking property after database creation (self-referential dual relation)
+    blocking_added = add_property_to_database(created_db_id, "Blocking", {
+        "relation": {
+            "database_id": created_db_id,
+            "type": "dual_property",
+            "dual_property": {
+                "synced_property_name": "Blocked by"
+            }
+        }
+    })
+    
+    # Verify Blocking property was successfully added
+    if blocking_added:
+        time.sleep(1)  # Wait for property to propagate
+        schema = get_database_schema(created_db_id)
+        if "Blocking" not in schema:
+            print("⚠️  WARNING: Blocking property failed to propagate. Retrying...")
+            time.sleep(2)
+            schema = get_database_schema(created_db_id)
+            if "Blocking" not in schema:
+                print("❌ CRITICAL: Blocking property still not available after retry")
+    
+    return created_db_id
 
 def flush_database(db_id: str):
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
@@ -308,11 +332,63 @@ def provision_infrastructure():
 
     # 4. Supplemental Seed: Due in 3 days (Date Math Target)
     target_date = (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%d")
-    create_page(tasks_db_id, {
+    imminent_task_id = create_page(tasks_db_id, {
         "Name": {"title": [{"text": {"content": "Imminent Validation"}}]},
         "Due Date": {"date": {"start": target_date}},
         "Intensity": {"select": {"name": "3"}},
         "Project": {"relation": [{"id": ai_research_id}]}
+    })
+
+    # 5. Supplemental Seed: Emergency Task (Status='Not started', Urgency='4')
+    critical_overflow_id = create_page(tasks_db_id, {
+        "Name": {"title": [{"text": {"content": "Critical Overflow"}}]},
+        "Status": {"select": {"name": "Not started"}},
+        "Urgency": {"select": {"name": "4"}},
+        "Do Now": {"checkbox": False}
+    })
+
+    # 6. Supplemental Seed: Blocked tasks for propagation (blocking relationship)
+    # Create a blocked task that will be marked as Done when "New problem" is propagated
+    blocked_task_id = create_page(tasks_db_id, {
+        "Name": {"title": [{"text": {"content": "Blocked_by_new_problem"}}]},
+        "Status": {"select": {"name": "Not started"}}
+    })
+
+    # 7. Supplemental Seed: Parent task "New problem" with Done status and blocking relation
+    new_problem_id = create_page(tasks_db_id, {
+        "Name": {"title": [{"text": {"content": "New problem"}}]},
+        "Status": {"select": {"name": "Done"}}
+    })
+    
+    # Add the Blocking relation via PATCH after page creation to ensure property is available
+    # Wait longer to ensure property propagation
+    time.sleep(2)
+    
+    # Verify Blocking property exists before attempting to PATCH
+    tasks_schema = get_database_schema(tasks_db_id)
+    if "Blocking" in tasks_schema:
+        patch_url = f"https://api.notion.com/v1/pages/{new_problem_id}"
+        patch_payload = {
+            "properties": {
+                "Blocking": {"relation": [{"id": blocked_task_id}]}
+            }
+        }
+        patch_resp = requests.patch(patch_url, headers=HEADERS, json=patch_payload)
+        if patch_resp.status_code != 200:
+            print(f"⚠️  Failed to add Blocking relation to 'New problem': {patch_resp.text}")
+        else:
+            print(f"✓ Added Blocking relation to 'New problem'")
+    else:
+        print(f"⚠️  Blocking property not available in schema. Skipping relation setup. Available: {list(tasks_schema.keys())}")
+
+    # 8. Supplemental Seed: Deprecated task for archive testing
+    #    Note: Uses "Last Reviewed" as a proxy for age since Notion's "Created" property is read-only.
+    #    Set Last Reviewed to 31 days ago.
+    deprecated_date = (datetime.now() - timedelta(days=31)).strftime("%Y-%m-%d")
+    create_page(tasks_db_id, {
+        "Name": {"title": [{"text": {"content": "Deprecated Node"}}]},
+        "Last Reviewed": {"date": {"start": deprecated_date}},
+        "Status": {"select": {"name": "Done"}}
     })
 
     print("Executing final state export...")

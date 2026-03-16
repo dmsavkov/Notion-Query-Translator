@@ -1,5 +1,5 @@
 task_id: propagate_status_done
-task: "Check the task with name 'New problem'. If its Status is 'Done', find all tasks it is 'Blocking' and update their Status to 'Done' as well."
+task: "Check the task with name 'New problem'. If its Status is 'Done', find all tasks it is blocking and update their Status to 'Done' as well."
 properties:
   task_name: "New problem"
 
