@@ -1,12 +1,23 @@
-"""Hardcoded context variants used when retrieval is disabled."""
+"""Context variants loaded from files or hardcoded fallbacks."""
 
 from typing import Dict, Literal
+from pathlib import Path
 
 
-ContextUsed = Literal["dynamic", "baseline", "detailed"]
+ContextUsed = Literal["dynamic", "baseline", "detailed", "personal_efficient_comprehensive_3", "personal_efficient", "personal_comprehensive", "comprehensive_3"]
 
 
-HARDCODED_CONTEXTS: Dict[Literal["baseline", "detailed"], str] = {
+def _load_file(relative_path: str) -> str:
+    """Load a file from the data/context directory."""
+    file_path = Path(__file__).parent.parent / "data" / "context" / relative_path
+    return file_path.read_text(encoding="utf-8")
+
+# Load files at module initialization
+_DATABASE_SCHEMA_TOKEN_EFFICIENT = _load_file("database_schema_report_token_efficient.txt")
+_DATABASE_SCHEMA_COMPREHENSIVE = _load_file("database_schema_report_comprehensive.txt")
+_NOTION_API_COMPREHENSIVE = _load_file("notion_api_comprehensive_3.md")
+
+HARDCODED_CONTEXTS: Dict[ContextUsed, str] = {
     "baseline": (
         "Notion API quick reference:\n"
         "- Create page: POST /v1/pages with parent and properties.\n"
@@ -39,6 +50,13 @@ HARDCODED_CONTEXTS: Dict[Literal["baseline", "detailed"], str] = {
         "   - Validate required identifiers before request execution.\n"
         "   - Prefer deterministic filters and explicit property names.\n"
         "   - Handle empty results and non-200 errors with clear diagnostics."
+    ),
+    "personal_efficient": _DATABASE_SCHEMA_TOKEN_EFFICIENT,
+    "personal_comprehensive": _DATABASE_SCHEMA_COMPREHENSIVE,
+    "comprehensive_3": _DATABASE_SCHEMA_COMPREHENSIVE,
+    "personal_efficient_comprehensive_3": (
+        _DATABASE_SCHEMA_TOKEN_EFFICIENT + "\n\n" +
+        _NOTION_API_COMPREHENSIVE
     ),
 }
 
