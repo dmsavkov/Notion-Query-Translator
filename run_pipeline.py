@@ -10,6 +10,7 @@ from langgraph.graph import END, StateGraph
 from langchain_core.runnables import RunnableConfig
 
 from build_rag import RagBuildConfig
+from src.hardcoded_contexts import ContextUsed
 from src.nodes import (
     codegen_node,
     execute_node,
@@ -79,7 +80,7 @@ class AgentParams(BaseModel):
 
 class PipelineParams(BaseModel):
     """Dynamic parameters used during pipeline execution."""
-    minimal: bool = False
+    minimal: bool = True
     max_trials: int = 3
 
     model_config = ConfigDict(frozen=True)
@@ -91,8 +92,8 @@ class StaticParams(BaseModel):
     output_dir: str = "evaluation_results"
     sqlite_saver_path: str = "data/checkpoints.sqlite"
     case_type: Literal["simple", "complex", "all"] = "complex"
-    context_used: Literal["dynamic", "baseline", "detailed"] = "dynamic"
-    enable_planning: bool = True
+    context_used: ContextUsed = "personal_efficient_comprehensive_3"
+    enable_planning: bool = False
     
     model_config = ConfigDict(frozen=True)
 
