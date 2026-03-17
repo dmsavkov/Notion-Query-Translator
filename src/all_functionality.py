@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import openai
 import yaml
+from json_repair import repair_json
 from langsmith.wrappers import wrap_openai
 
 from .config import (
@@ -179,6 +180,61 @@ def extract_json_from_response(response_content: Optional[str]) -> Dict[str, Any
         f"Failed to extract JSON from response. "
         f"Content preview: {response_content[:200]}..."
     )
+
+
+def parse_statements_response(response_content: Any) -> List[Dict[str, Any]]:
+    """
+    Parse and repair statement-evaluator responses with minimal extraction logic.
+
+    Supported input forms:
+    - Raw model text (including fenced ```json blocks)
+    - Already parsed Python list/dict
+
+    Parsing strategy is intentionally minimal:
+    - Find first '[' and last ']'
+    - Repair JSON via json_repair
+    - Parse list
+    - Keep only items that include a statement key and a presence key
+      (supports both 'present' and legacy 'status').
+    """
+    try:
+        if response_content is None:
+            return []
+
+        parsed: Any
+        if isinstance(response_content, list):
+            parsed = response_content
+        elif isinstance(response_content, dict):
+            parsed = response_content.get("statements", [])
+        else:
+            text = str(response_content)
+            left_idx = text.find("[")
+            right_idx = text.rfind("]")
+            if left_idx < 0 or right_idx <= left_idx:
+                return []
+
+            candidate = text[left_idx:right_idx + 1]
+            repaired = repair_json(candidate)
+            parsed = json.loads(repaired)
+
+        if not isinstance(parsed, list):
+            return []
+
+        filtered: List[Dict[str, Any]] = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+
+            has_statement = "statement" in item
+            has_present_field = "status" in item
+            if has_statement and has_present_field:
+                filtered.append(item)
+
+        return filtered
+
+    except Exception as e:
+        logger.warning("parse_statements_response failed: %s", e)
+        return []
 
 
 

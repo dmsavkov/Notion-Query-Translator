@@ -16,7 +16,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from .all_functionality import async_chat_wrapper
+from .all_functionality import async_chat_wrapper, parse_statements_response
 from .prompts import build_prompt_statements
 
 logger = logging.getLogger(__name__)
@@ -128,13 +128,13 @@ class Evaluator:
         # LLM call
         result = await async_chat_wrapper(
             messages=[{"role": "user", "content": prompt}],
-            json_output=True,
+            json_output=False,
             temperature=self.eval_temperature,
             model_size=model,
             max_tokens=self.max_tokens,
         )
-        
-        return result
+
+        return parse_statements_response(result)
     
     async def eval_code_exec(self, code: str) -> Dict[str, Any]:
         """
