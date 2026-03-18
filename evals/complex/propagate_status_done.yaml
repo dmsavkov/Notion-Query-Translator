@@ -77,6 +77,7 @@ solution: |
       return {"updated": updated, "blocked_task_ids": blocked_ids}
 
 correct_statements:
+  - "The workflow: (1) POSTs to /databases/{tasks_database_id}/query to find the parent task by Name, (2) GETs its page and checks if Status is 'Done', (3) if not Done returns early, (4) if Done extracts blocked task ids from the Blocking relation, and (5) PATCHes each blocked task updating Status to 'Done'."
   - "The first request is POST https://api.notion.com/v1/databases/{tasks_database_id}/query to find the parent task by Name == 'New problem'."
   - "The database query filter uses only Name-title equality: {'filter': {'property': 'Name', 'title': {'equals': 'New problem'}}}; no Project relation filter is present."
   - "The lookup constrains parent candidate selection with page_size: 1 and uses results[0].id as task_id."

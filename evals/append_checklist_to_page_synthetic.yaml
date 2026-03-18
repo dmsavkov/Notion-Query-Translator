@@ -50,6 +50,7 @@ solution: |
   # append_checklist_to_page(os.getenv("NOTION_INBOX_PAGE_ID"), ["Read documentation", "Draft code", "Test API"])
 
 correct_statements:
+  - "The workflow loops over checklist items to build an array of to_do blocks, then PATCHes the entire array to https://api.notion.com/v1/blocks/{page_id}/children in a single request."
   - "Endpoint is PATCH https://api.notion.com/v1/blocks/{page_id}/children for appending blocks to a page."
   - "Header 'Notion-Version: 2022-06-28' is required on every request."
   - "Checklist items are represented as blocks with 'type': 'to_do'."

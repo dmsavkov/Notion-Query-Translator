@@ -38,6 +38,7 @@ solution: |
   # get_page_content(os.getenv("NOTION_INBOX_PAGE_ID"))
 
 correct_statements:
+  - "The workflow uses pagination: GETs /blocks/{page_id}/children with page_size=100, retrieves results, then loops fetching subsequent pages using next_cursor until has_more=false."
   - "Endpoint is GET https://api.notion.com/v1/blocks/{page_id}/children for retrieving a page's content."
   - "Header 'Notion-Version: 2022-06-28' is required on every request."
   - "To retrieve all blocks, use a pagination loop: set 'page_size' query parameter (max 100 per request) and fetch pages until 'has_more' is false or 'next_cursor' is null."

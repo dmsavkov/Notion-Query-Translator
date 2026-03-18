@@ -68,6 +68,7 @@ solution: |
   # add_new_task(os.getenv("NOTION_TASKS_DATABASE_ID"), "Add_task_test", 4)
 
 correct_statements:
+  - "The workflow parses a date string ('today'), builds a page-creation payload with all properties (Name, Due Date, Importance, Project), then POSTs to /pages endpoint to create the task."
   - "Endpoint is POST https://api.notion.com/v1/pages for creating a new page (task) in a database."
   - "Header 'Notion-Version: 2022-06-28' is required on every request."
   - "The parent database is specified as: {'parent': {'database_id': '<id>'}} at the top level of the body."
