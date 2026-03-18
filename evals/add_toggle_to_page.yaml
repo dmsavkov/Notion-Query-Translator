@@ -27,13 +27,13 @@ solution: |
                 "object": "block",
                 "type": "toggle",
                 "toggle": {
-                    "rich_text": [{"type": "text", "text": {"content": toggle_title}}], # The Header
+                    "rich_text": [{"type": "text", "text": {"content": title}}], # The Header
                     "children": [ # <--- THIS is what the statement is looking for
                         {
                             "object": "block",
                             "type": "paragraph",
                             "paragraph": {
-                                "rich_text": [{"type": "text", "text": {"content": toggle_content}}] # The Inside
+                                "rich_text": [{"type": "text", "text": {"content": content}}] # The Inside
                             }
                         }
                     ]
