@@ -92,7 +92,7 @@ class StaticParams(BaseModel):
     output_dir: str = "evaluation_results"
     sqlite_saver_path: str = "data/checkpoints.sqlite"
     case_type: Literal["simple", "complex", "all"] = "complex"
-    context_used: ContextUsed = "personal_efficient_comprehensive_3"
+    context_used: ContextUsed = "dynamic"
     enable_planning: bool = False
     
     model_config = ConfigDict(frozen=True)
