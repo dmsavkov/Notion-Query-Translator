@@ -53,10 +53,10 @@ def _load_context_files() -> Dict[str, str]:
             if file_path.is_file():
                 # Use stem (filename without extension) as key
                 key = file_path.stem
-                try:
-                    contexts[key] = file_path.read_text(encoding="utf-8")
-                except Exception as e:
-                    print(f"Warning: Could not load context file {file_path}: {e}")
+                contexts[key] = file_path.read_text(encoding="utf-8")
+                
+                if contexts[key].strip() == "":
+                    raise ValueError(f"Context file '{file_path}' is empty.")
     
     return contexts
 
