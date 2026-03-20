@@ -1,23 +1,11 @@
 """Context variants loaded from files or hardcoded fallbacks."""
 
-from typing import Dict, Literal
+from typing import Dict
 from pathlib import Path
 
 
-ContextUsed = Literal["dynamic", "baseline", "detailed", "personal_efficient_comprehensive_3", "personal_efficient", "personal_comprehensive", "comprehensive_3"]
-
-
-def _load_file(relative_path: str) -> str:
-    """Load a file from the data/context directory."""
-    file_path = Path(__file__).parent.parent / "data" / "context" / relative_path
-    return file_path.read_text(encoding="utf-8")
-
-# Load files at module initialization
-_DATABASE_SCHEMA_TOKEN_EFFICIENT = _load_file("database_schema_report_token_efficient.txt")
-_DATABASE_SCHEMA_COMPREHENSIVE = _load_file("database_schema_report_comprehensive.txt")
-_NOTION_API_COMPREHENSIVE = _load_file("notion_api_comprehensive_3.md")
-
-HARDCODED_CONTEXTS: Dict[ContextUsed, str] = {
+# Hardcoded context strings (kept intact as requested)
+_HARDCODED_STRINGS = {
     "baseline": (
         "Notion API quick reference:\n"
         "- Create page: POST /v1/pages with parent and properties.\n"
@@ -51,18 +39,73 @@ HARDCODED_CONTEXTS: Dict[ContextUsed, str] = {
         "   - Prefer deterministic filters and explicit property names.\n"
         "   - Handle empty results and non-200 errors with clear diagnostics."
     ),
-    "personal_efficient": _DATABASE_SCHEMA_TOKEN_EFFICIENT,
-    "personal_comprehensive": _DATABASE_SCHEMA_COMPREHENSIVE,
-    "comprehensive_3": _DATABASE_SCHEMA_COMPREHENSIVE,
-    "personal_efficient_comprehensive_3": (
-        _DATABASE_SCHEMA_TOKEN_EFFICIENT + "\n\n" +
-        _NOTION_API_COMPREHENSIVE
-    ),
 }
 
 
+def _load_context_files() -> Dict[str, str]:
+    """Load all context files from the data/context directory."""
+    context_dir = Path(__file__).parent.parent / "data" / "context"
+    contexts = {}
+    
+    if context_dir.exists():
+        for file_path in context_dir.iterdir():
+            if file_path.is_file():
+                # Use stem (filename without extension) as key
+                key = file_path.stem
+                try:
+                    contexts[key] = file_path.read_text(encoding="utf-8")
+                except Exception as e:
+                    print(f"Warning: Could not load context file {file_path}: {e}")
+    
+    return contexts
+
+def add_combinations(base: Dict[str, str]) -> Dict[str, str]:
+    """Add combination contexts based on existing keys."""
+    combined = {}
+    combinations = [
+        ['database_schema_report_token_efficient', 'notion_api_comprehensive_3'],
+        ['database_schema_report_token_efficient', 'notion_api_top25_20220628'],
+        ['database_schema_report_token_efficient', 'notion_api_top25'],
+    ]
+    
+    for combo in combinations:
+        keys = combo
+        if all(k in base for k in keys):
+            combined_key = "__".join(keys)
+            combined[combined_key] = "\n\n".join(base[k] for k in keys)
+    
+    return combined
+
+# Load all contexts: hardcoded strings + all files from directory
+_FILE_CONTEXTS = _load_context_files()
+_HARDCODED_CONTEXTS = {**_HARDCODED_STRINGS, **_FILE_CONTEXTS}
+HARDCODED_CONTEXTS: Dict[str, str] = {**_HARDCODED_CONTEXTS, **add_combinations(_HARDCODED_CONTEXTS)}
+
+# Type alias for available context keys (dynamically generated)
+ContextUsed = str
+
+
 def get_hardcoded_context(context_used: ContextUsed) -> str:
-    """Return the selected hardcoded context variant."""
+    """Return the selected hardcoded context variant.
+    
+    Args:
+        context_used: Context name to retrieve. Available options are dynamically
+                     determined from hardcoded strings and files in data/context directory.
+    
+    Returns:
+        The content of the requested context.
+    
+    Raises:
+        ValueError: If context_used is not available.
+    """
     if context_used == "dynamic":
         raise ValueError("dynamic context does not map to a hardcoded literal")
+    if context_used not in HARDCODED_CONTEXTS:
+        available = sorted(HARDCODED_CONTEXTS.keys())
+        raise ValueError(
+            f"Unknown context: '{context_used}'. Available contexts: {available}"
+        )
     return HARDCODED_CONTEXTS[context_used]
+
+if __name__ == "__main__":
+    print("keys", HARDCODED_CONTEXTS.keys())
