@@ -67,6 +67,7 @@ def add_combinations(base: Dict[str, str]) -> Dict[str, str]:
         ['database_schema_report_token_efficient', 'notion_api_comprehensive_3'],
         ['database_schema_report_token_efficient', 'notion_api_top25_20220628'],
         ['database_schema_report_token_efficient', 'notion_api_top25'],
+        ['database_schema_report_comprehensive', 'notion_api_top25_20220628'],
     ]
     
     for combo in combinations:
