@@ -2,6 +2,7 @@
 
 from typing import Dict
 from pathlib import Path
+from typing import Literal
 
 
 # Hardcoded context strings (kept intact as requested)
@@ -82,7 +83,8 @@ _HARDCODED_CONTEXTS = {**_HARDCODED_STRINGS, **_FILE_CONTEXTS}
 HARDCODED_CONTEXTS: Dict[str, str] = {**_HARDCODED_CONTEXTS, **add_combinations(_HARDCODED_CONTEXTS)}
 
 # Type alias for available context keys (dynamically generated)
-ContextUsed = str
+keys = tuple(HARDCODED_CONTEXTS.keys())
+ContextUsed = Literal[*keys, "dynamic"]
 
 
 def get_hardcoded_context(context_used: ContextUsed) -> str:
@@ -108,4 +110,5 @@ def get_hardcoded_context(context_used: ContextUsed) -> str:
     return HARDCODED_CONTEXTS[context_used]
 
 if __name__ == "__main__":
+    print(ContextUsed)
     print("keys", HARDCODED_CONTEXTS.keys())
