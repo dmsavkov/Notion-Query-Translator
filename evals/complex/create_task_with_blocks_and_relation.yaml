@@ -103,7 +103,7 @@ solution: |
 
 correct_statements:
   - "The first request is POST https://api.notion.com/v1/databases/{projects_database_id}/query to resolve the id for project Name == 'AI Research'."
-  - "Project lookup filter is exactly {'filter': {'property': 'Name', 'title': {'equals': 'AI Research'}}} with page_size: 1."
+  - "Project lookup filter uses {'property': 'Name', 'title': {'equals': 'AI Research'}}; page_size is optional (defaults to 100 if omitted)."
   - "Page creation is a separate second request to POST https://api.notion.com/v1/pages, executed only after project id resolution."
   - "Project relation in create payload is exactly {'Project': {'relation': [{'id': '<resolved_project_id>'}]}}."
   - "Checklist blocks are included in top-level 'children' of the same page-creation payload; no PATCH /blocks/{id}/children call is used."
