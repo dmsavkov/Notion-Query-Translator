@@ -92,8 +92,8 @@ class StaticParams(BaseModel):
     output_dir: str = "evaluation_results"
     sqlite_saver_path: str = "data/checkpoints.sqlite"
     case_type: Literal["simple", "complex", "all"] = "complex"
-    context_used: ContextUsed = "database_schema_report_token_efficient__notion_api_top25"
-    enable_planning: bool = False
+    context_used: ContextUsed = "database_schema_report_token_efficient__notion_api_top25_20220628"
+    enable_planning: bool = True
     
     model_config = ConfigDict(frozen=True)
 
