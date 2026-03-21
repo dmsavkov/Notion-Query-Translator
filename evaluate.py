@@ -12,7 +12,7 @@ from src.all_functionality import load_eval_tasks
 from src.evaluator import Evaluator
 
 # Global setup
-EXPERIMENT_PREFIX = "2) COMPLEX CONTEXT UPDATED: personal comprehensive + top25_20220628, refl3."  # for grouping runs in LangSmith
+EXPERIMENT_PREFIX = "2) COMPLEX CONTEXT UPDATED: personal comprehensive + top25_20220628 + scratch."  # for grouping runs in LangSmith
 EVALS_CASE_TYPE = "complex"
 JUDGE_MODEL_NAME = "gemini-3.1-flash-lite-preview"
 EVAL_MAX_CONCURRENCY = 5
