@@ -80,7 +80,7 @@ class AgentParams(BaseModel):
 
 class PipelineParams(BaseModel):
     """Dynamic parameters used during pipeline execution."""
-    minimal: bool = True
+    minimal: bool = False
     max_trials: int = 3
 
     model_config = ConfigDict(frozen=True)
