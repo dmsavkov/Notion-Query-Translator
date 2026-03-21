@@ -40,6 +40,16 @@ _HARDCODED_STRINGS = {
         "   - Prefer deterministic filters and explicit property names.\n"
         "   - Handle empty results and non-200 errors with clear diagnostics."
     ),
+    "scratchpad": """
+<execution_guardrails>
+    <pre_flight_analysis>
+        Analyze the objective's scale and temporal boundaries. You must explicitly determine the configuration for these three parameters before generating any code or payloads:
+        [ ] pagination: Evaluate dataset volume. If potentially >100 items, you MUST implement a `next_cursor` loop.
+        [ ] page_size: Do not rely on defaults. Explicitly declare `page_size` (1-100) based on the specific operational requirement.
+        [ ] before: Analyze the date logic. Decide strictly between `before` (exclusive boundary) or `on_or_before` (inclusive boundary).
+    </pre_flight_analysis>
+</execution_guardrails>.
+"""
 }
 
 
@@ -68,6 +78,7 @@ def add_combinations(base: Dict[str, str]) -> Dict[str, str]:
         ['database_schema_report_token_efficient', 'notion_api_top25_20220628'],
         ['database_schema_report_token_efficient', 'notion_api_top25'],
         ['database_schema_report_comprehensive', 'notion_api_top25_20220628'],
+        ['database_schema_report_comprehensive', 'notion_api_top25_20220628', 'scratchpad'],
     ]
     
     for combo in combinations:
