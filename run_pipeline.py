@@ -94,6 +94,7 @@ class StaticParams(BaseModel):
     case_type: Literal["simple", "complex", "all"] = "complex"
     context_used: ContextUsed = "database_schema_report_comprehensive__notion_api_top25_20220628__scratchpad"
     enable_planning: bool = False
+    max_concurrency: int = 6
     
     model_config = ConfigDict(frozen=True)
 
@@ -170,7 +171,7 @@ async def main() -> Dict[str, Dict[str, Any]]:
     async with AsyncSqliteSaver.from_conn_string(static_params.sqlite_saver_path) as checkpointer:
         pipeline = build_pipeline().compile(checkpointer=checkpointer)
 
-        semaphore = asyncio.Semaphore(3)
+        semaphore = asyncio.Semaphore(static_params.max_concurrency)
 
         async def _run_task(task_id: str, task_data: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
             prompt = (
