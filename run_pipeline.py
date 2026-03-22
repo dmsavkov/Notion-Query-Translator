@@ -152,8 +152,7 @@ def build_pipeline():
 
     return graph
 
-
-async def main() -> Dict[str, Dict[str, Any]]:
+async def main(eval_tasks: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Dict[str, Any]]:
     print("Setting up test infrastructure...")
     provision_infrastructure()
     print("Test infrastructure ready.\n")
@@ -163,10 +162,11 @@ async def main() -> Dict[str, Dict[str, Any]]:
     agent_params = AgentParams()
     rag_build_config = RagBuildConfig()
     
-    eval_tasks = load_eval_tasks(
-        evals_dir=static_params.evals_dir,
-        case_type=static_params.case_type
-    )
+    if eval_tasks is None:
+        eval_tasks = load_eval_tasks(
+            evals_dir=static_params.evals_dir,
+            case_type=static_params.case_type
+        )
     
     async with AsyncSqliteSaver.from_conn_string(static_params.sqlite_saver_path) as checkpointer:
         pipeline = build_pipeline().compile(checkpointer=checkpointer)

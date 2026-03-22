@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "notion-query"
 version = "0.1.0"
@@ -26,6 +30,19 @@ dependencies = [
     "requests>=2.32.5",
     "typer>=0.24.1",
 ]
+
+[project.scripts]
+notion-agent = "notion_query.cli:app"
+
+[tool.uv]
+package = true
+
+[tool.setuptools]
+py-modules = ["cli", "build_rag", "evaluate", "run_pipeline", ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["notion_query*", "src*", "evals*"]
 
 [dependency-groups]
 dev = [
