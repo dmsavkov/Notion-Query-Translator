@@ -1,5 +1,6 @@
 import json
 import logging
+import atexit
 from functools import lru_cache
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -37,6 +38,17 @@ def build_qdrant_client(path: str) -> QdrantClient:
 
 # Global Qdrant client instance
 qdrant_client = build_qdrant_client(QDRANT_PATH)
+
+
+def close_qdrant_client_safely() -> None:
+    """Close global Qdrant client and suppress teardown-time errors."""
+    try:
+        qdrant_client.close()
+    except Exception:
+        pass
+
+
+atexit.register(close_qdrant_client_safely)
 
 
 async def query_qdrant(

@@ -21,6 +21,7 @@ from src.nodes import (
     retrieve_node,
 )
 from src.all_functionality import load_eval_tasks
+from src.rag_utils import close_qdrant_client_safely
 from evals.test_dbs_script import provision_infrastructure
 
 
@@ -224,88 +225,93 @@ async def main(eval_tasks: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[s
             evals_dir=static_params.evals_dir,
             case_type=static_params.case_type
         )
+
+    if eval_tasks is None:
+        raise ValueError("No evaluation tasks were provided or loaded.")
     
-    async with AsyncSqliteSaver.from_conn_string(static_params.sqlite_saver_path) as checkpointer:
-        pipeline = build_pipeline().compile(checkpointer=checkpointer)
+    try:
+        async with AsyncSqliteSaver.from_conn_string(static_params.sqlite_saver_path) as checkpointer:
+            pipeline = build_pipeline().compile(checkpointer=checkpointer)
+            semaphore = asyncio.Semaphore(static_params.max_concurrency)
 
-        semaphore = asyncio.Semaphore(static_params.max_concurrency)
+            async def _run_task(task_id: str, task_data: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
+                prompt = (
+                    task_data.get("query")
+                    or task_data.get("user_prompt")
+                    or task_data.get("task")
+                    or ""
+                )
+                think = task_data.get("think", False)
 
-        async def _run_task(task_id: str, task_data: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
-            prompt = (
-                task_data.get("query")
-                or task_data.get("user_prompt")
-                or task_data.get("task")
-                or ""
-            )
-            think = task_data.get("think", False)
-            
-            initial_state: PipelineState = {
-                "task_id": task_id,
-                "user_prompt": prompt,
-                "retrieval_context": "",
-                "request_plan": "",
-                "general_info": "",
-                "trial_num": 0,
-                "generated_code": "",
-                "function_name": "",
-                "solution_run": {},
-                "reflection_context": [],
-                "feedback": "",
-                "verdict": {},
-                "trials": [],
-                "final_code": "",
-                "passed": False,
-                "queries": [],
-            }
-            
-            pipeline_params = PipelineParams(minimal=not think)
-            agent_params = AgentParams()
-            rag_build_config = RagBuildConfig()
+                initial_state: PipelineState = {
+                    "task_id": task_id,
+                    "user_prompt": prompt,
+                    "retrieval_context": "",
+                    "request_plan": "",
+                    "general_info": "",
+                    "trial_num": 0,
+                    "generated_code": "",
+                    "function_name": "",
+                    "solution_run": {},
+                    "reflection_context": [],
+                    "feedback": "",
+                    "verdict": {},
+                    "trials": [],
+                    "final_code": "",
+                    "passed": False,
+                    "queries": [],
+                }
 
-            async with semaphore:
-                try:
-                    configurable = {
-                        "thread_id": generate_thread_id(prefix=task_id),
-                        "pipeline_params": pipeline_params.model_dump(),
-                        "static_params": static_params.model_dump(),
-                        "agent_params": agent_params.model_dump(),
-                        "build_rag": asdict(rag_build_config),
-                    }
-                    final_state = await pipeline.ainvoke(
-                        initial_state,
-                        config=RunnableConfig(
-                            configurable=configurable,
-                            metadata=configurable
+                pipeline_params = PipelineParams(minimal=not think)
+                agent_params = AgentParams()
+                rag_build_config = RagBuildConfig()
+
+                async with semaphore:
+                    try:
+                        configurable = {
+                            "thread_id": generate_thread_id(prefix=task_id),
+                            "pipeline_params": pipeline_params.model_dump(),
+                            "static_params": static_params.model_dump(),
+                            "agent_params": agent_params.model_dump(),
+                            "build_rag": asdict(rag_build_config),
+                        }
+                        final_state = await pipeline.ainvoke(
+                            initial_state,
+                            config=RunnableConfig(
+                                configurable=configurable,
+                                metadata=configurable
+                            )
                         )
-                    )
-                    final_code = str(final_state.get("final_code") or final_state.get("generated_code") or "")
-                    function_name = str(final_state.get("function_name", ""))
-                    execution_result = _execute_generated_code(final_code, function_name)
-                    passed = bool(execution_result.get("passed", False))
-                    print(f"{task_id}: {'PASS' if passed else 'FAIL'}")
-                    return task_id, {
-                        "passed": passed,
-                        "final_code": final_code,
-                        "trials": final_state.get("trials", []),
-                        "output": execution_result.get("output", ""),
-                        "execution": execution_result,
-                        "function_name": function_name,
-                    }
-                except Exception as e:
-                    print(f"{task_id}: Exception occurred")
-                    print(e)
-                    return task_id, {
-                        "passed": False,
-                        "final_code": "",
-                        "trials": [],
-                        "error": str(e),
-                    }
+                        final_code = str(final_state.get("final_code") or final_state.get("generated_code") or "")
+                        function_name = str(final_state.get("function_name", ""))
+                        execution_result = _execute_generated_code(final_code, function_name)
+                        passed = bool(execution_result.get("passed", False))
+                        print(f"{task_id}: {'PASS' if passed else 'FAIL'}")
+                        return task_id, {
+                            "passed": passed,
+                            "final_code": final_code,
+                            "trials": final_state.get("trials", []),
+                            "output": execution_result.get("output", ""),
+                            "execution": execution_result,
+                            "function_name": function_name,
+                        }
+                    except Exception as e:
+                        print(f"{task_id}: Exception occurred")
+                        print(e)
+                        return task_id, {
+                            "passed": False,
+                            "final_code": "",
+                            "trials": [],
+                            "error": str(e),
+                        }
 
-        task_results = await asyncio.gather(
-            *(_run_task(task_id, task_data) for task_id, task_data in eval_tasks.items())
-        )
+            task_results = await asyncio.gather(
+                *(_run_task(task_id, task_data) for task_id, task_data in eval_tasks.items())
+            )
 
-        return {task_id: result for task_id, result in task_results}
+            return {task_id: result for task_id, result in task_results}
+    finally:
+        close_qdrant_client_safely()
 
 
 if __name__ == "__main__":

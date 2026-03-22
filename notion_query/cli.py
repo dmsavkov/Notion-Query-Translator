@@ -30,7 +30,11 @@ def run(
 
     from run_pipeline import main
 
-    result = asyncio.run(main(eval_tasks=tasks))
+    try:
+        result = asyncio.run(main(eval_tasks=tasks))
+    except Exception as exc:
+        typer.secho(f"Error: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
     
     # Extract the single task result
     task_result = result.get("user_request", {})
