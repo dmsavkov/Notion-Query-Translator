@@ -157,11 +157,7 @@ async def main(eval_tasks: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[s
     provision_infrastructure()
     print("Test infrastructure ready.\n")
     
-    pipeline_params = PipelineParams()
     static_params = StaticParams()
-    agent_params = AgentParams()
-    rag_build_config = RagBuildConfig()
-    
     if eval_tasks is None:
         eval_tasks = load_eval_tasks(
             evals_dir=static_params.evals_dir,
@@ -180,6 +176,8 @@ async def main(eval_tasks: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[s
                 or task_data.get("task")
                 or ""
             )
+            think = task_data.get("think", False)
+            
             initial_state: PipelineState = {
                 "task_id": task_id,
                 "user_prompt": prompt,
@@ -198,6 +196,10 @@ async def main(eval_tasks: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[s
                 "passed": False,
                 "queries": [],
             }
+            
+            pipeline_params = PipelineParams(minimal=not think)
+            agent_params = AgentParams()
+            rag_build_config = RagBuildConfig()
 
             async with semaphore:
                 try:

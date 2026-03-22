@@ -13,7 +13,7 @@ def run(
         False,
         "--think",
         "-t",
-        help="Deprecated: reflection mode toggle is currently ignored.",
+        help="Enable reflection (not 'Minimal' mode)",
     ),
 ) -> None:
     """Run the Notion agent pipeline for a single user prompt.
@@ -24,11 +24,9 @@ def run(
     tasks: Dict[str, Dict[str, Any]] = {
         "user_request": {
             "query": user_prompt,
+            "think": think,
         }
     }
-
-    # Intentionally unused for now; reserved for future reflection controls.
-    _ = think
 
     from run_pipeline import main
 
