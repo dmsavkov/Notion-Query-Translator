@@ -153,12 +153,18 @@ def build_pipeline():
     return graph
 
 async def main(eval_tasks: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Dict[str, Any]]:
-    print("Setting up test infrastructure...")
-    provision_infrastructure()
-    print("Test infrastructure ready.\n")
-    
     static_params = StaticParams()
+    
     if eval_tasks is None:
+        DEV_MODE = True
+    else:
+        DEV_MODE = False
+    
+    if DEV_MODE:
+        print("Setting up test infrastructure...")
+        provision_infrastructure()
+        print("Test infrastructure ready.\n")
+        
         eval_tasks = load_eval_tasks(
             evals_dir=static_params.evals_dir,
             case_type=static_params.case_type
