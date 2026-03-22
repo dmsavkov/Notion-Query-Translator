@@ -1,4 +1,6 @@
 import asyncio
+import contextlib
+import io
 import operator
 from dataclasses import asdict
 from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict, cast
@@ -152,6 +154,59 @@ def build_pipeline():
 
     return graph
 
+
+def _execute_generated_code(code: str, function_name: str) -> Dict[str, Any]:
+    """Execute generated code and capture stdout/stderr plus function return value."""
+    if not code.strip():
+        return {
+            "passed": False,
+            "output": "",
+            "stdout": "",
+            "stderr": "",
+            "error": "No generated code to execute.",
+        }
+
+    namespace: Dict[str, Any] = {"__name__": "__generated__"}
+    stdout_buffer = io.StringIO()
+    stderr_buffer = io.StringIO()
+
+    try:
+        with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
+            exec(code, namespace)
+
+            target_name = function_name if function_name else "main"
+            target = namespace.get(target_name)
+            return_value = None
+
+            if callable(target):
+                return_value = target()
+
+        stdout_text = stdout_buffer.getvalue()
+        stderr_text = stderr_buffer.getvalue()
+        output_parts: List[str] = []
+        if stdout_text:
+            output_parts.append(stdout_text.rstrip())
+        if return_value is not None:
+            output_parts.append(str(return_value))
+        if stderr_text:
+            output_parts.append(stderr_text.rstrip())
+
+        return {
+            "passed": True,
+            "output": "\n".join(part for part in output_parts if part),
+            "stdout": stdout_text,
+            "stderr": stderr_text,
+            "return_value": return_value,
+        }
+    except Exception as exc:
+        return {
+            "passed": False,
+            "output": "",
+            "stdout": stdout_buffer.getvalue(),
+            "stderr": stderr_buffer.getvalue(),
+            "error": str(exc),
+        }
+
 async def main(eval_tasks: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Dict[str, Any]]:
     static_params = StaticParams()
     
@@ -223,12 +278,18 @@ async def main(eval_tasks: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[s
                             metadata=configurable
                         )
                     )
-                    passed = bool(final_state.get("passed", False))
+                    final_code = str(final_state.get("final_code") or final_state.get("generated_code") or "")
+                    function_name = str(final_state.get("function_name", ""))
+                    execution_result = _execute_generated_code(final_code, function_name)
+                    passed = bool(execution_result.get("passed", False))
                     print(f"{task_id}: {'PASS' if passed else 'FAIL'}")
                     return task_id, {
                         "passed": passed,
-                        "final_code": final_state.get("final_code", ""),
+                        "final_code": final_code,
                         "trials": final_state.get("trials", []),
+                        "output": execution_result.get("output", ""),
+                        "execution": execution_result,
+                        "function_name": function_name,
                     }
                 except Exception as e:
                     print(f"{task_id}: Exception occurred")
