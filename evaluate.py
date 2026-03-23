@@ -9,6 +9,7 @@ from langchain_core.runnables import RunnableConfig
 
 from run_pipeline import StaticParams
 from src.all_functionality import load_eval_tasks
+from src.error_analysis import HumanConfig, main as run_error_analysis_main
 from src.evaluator import Evaluator
 
 # Global setup
@@ -16,6 +17,7 @@ EXPERIMENT_PREFIX = "COMPLEX CONTEXT UPDATED: personal comprehensive + top25_202
 EVALS_CASE_TYPE = "complex"
 JUDGE_MODEL_NAME = "gemini-3.1-flash-lite-preview"
 EVAL_MAX_CONCURRENCY = 5
+RUN_ERROR_ANALYSIS_AFTER_EVAL = True
 
 DATASET_NAME = ""
 N_LAST_RUNS = 0
@@ -415,6 +417,24 @@ async def main():
     )
 
     print(results)
+
+    if RUN_ERROR_ANALYSIS_AFTER_EVAL:
+        try:
+            error_analysis_result = await asyncio.to_thread(
+                run_error_analysis_main,
+                EXPERIMENT_PREFIX,
+                HumanConfig(),
+                DATASET_NAME,
+            )
+            print(
+                "Error analysis complete: "
+                f"page_title={error_analysis_result.get('page_title', '')}, "
+                f"page_id={error_analysis_result.get('page_id', '')}, "
+                f"record_count={error_analysis_result.get('record_count', 0)}"
+            )
+            print("Second-prompt payload copied to clipboard.")
+        except Exception as e:
+            print(f"Post-eval error analysis failed: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
