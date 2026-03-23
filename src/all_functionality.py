@@ -11,11 +11,7 @@ import sys
 from functools import partial
 from typing import Any, Dict, List, Literal, Optional
 
-import matplotlib
-import matplotlib.pyplot as plt
-import numpy as np
 import openai
-import yaml
 from json_repair import repair_json
 from langsmith.wrappers import wrap_openai
 
@@ -23,15 +19,9 @@ from .config import (
     _MODEL_MAP,
 )
 from .prompts import (
-    EVAL_CRITERIA,
-    build_analyze_requirements_prompt,
     build_concision_prompt,
     build_generate_code_prompt,
     build_generate_request_plan_prompt,
-    build_generate_tests_draft_prompt,
-    build_generate_tests_grade_prompt,
-    build_judge_category_prompt,
-    build_preflect_prompt,
     build_reflect_code_prompt,
 )
 from .rag_utils import (
@@ -302,24 +292,6 @@ async def async_chat_wrapper(
         content = extract_json_from_response(content)
     return content
 # ── Step 1.5: Requirements Analysis ────────────────────────────────────────────────
-async def analyze_requirements(user_prompt: str) -> Dict[str, str]:
-    """
-    Pre-RAG analysis using a medium model to extract key requirements.
-    
-    This lightweight step identifies the top documentation/API concepts needed
-    before dumping the full corpora, making RAG retrieval more targeted.
-    
-    Returns a dict with requirement names as keys and descriptions as values.
-    """
-    prompt = build_analyze_requirements_prompt(user_prompt=user_prompt)
-    
-    result: Dict[str, str] = await async_chat_wrapper(
-        [{"role": "user", "content": prompt}],
-        json_output=True, max_tokens=600, temperature=0.2, model_size="gemma12",
-    )
-    
-    logger.info("Requirements analysis: %s", result)
-    return result
 
 
 # ── Step 3: General Info ────────────────────────────────────────────────────────────────
@@ -373,72 +345,11 @@ async def generate_request_plan(user_prompt: str, rag_context: str, chat_fn: par
 
 
 # ── Step 4: Generate Tests ────────────────────────────────────────────────────────────────
-_TEST_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "test_code": {"type": "string", "description": "Complete, runnable pytest code"}
-    },
-    "required": ["test_code"]
-}
-
-_GRADE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "test_code": {"type": "string"},
-        "reasoning": {"type": "string"}
-    },
-    "required": ["test_code", "reasoning"]
-}
 
 
-async def generate_tests(general_info: str) -> str:
-    """
-    TDD step — 3 parallel different-model drafts, then 1 medium-model grader
-    picks / merges the best result.
-
-    Returns ready-to-write Python test code (string).
-    """
-    draft_prompt = build_generate_tests_draft_prompt(general_info=general_info)
-
-    # 3 parallel different-size drafts
-    drafts: list[Dict] = await asyncio.gather(*[
-        async_chat_wrapper(
-            [{"role": "user", "content": draft_prompt}],
-            json_output=True, max_tokens=2200, temperature=0.7, model_size="gemma1",
-        ),
-        async_chat_wrapper(
-            [{"role": "user", "content": draft_prompt}],
-            json_output=True, max_tokens=2200, temperature=0.7, model_size="gemma4",
-        ),
-        async_chat_wrapper(
-            [{"role": "user", "content": draft_prompt}],
-            json_output=True, max_tokens=2200, temperature=0.7, model_size="gemma12",
-        ),
-    ])
-
-    candidates_block = "\n\n".join(
-        f"<candidate_{i+1}>\n{d.get('test_code', '')}\n</candidate_{i+1}>"
-        for i, d in enumerate(drafts)
-    )
-
-    grade_prompt = build_generate_tests_grade_prompt(
-        general_info=general_info,
-        candidates_block=candidates_block,
-    )
-
-    graded: Dict = await async_chat_wrapper(
-        [{"role": "user", "content": grade_prompt}],
-        json_output=True, max_tokens=2600, temperature=0.2, model_size="gemma27",
-    )
-
-    logger.info("Test grader reasoning: %s", graded.get("reasoning", ""))
-    return graded.get("test_code", "")
 
 
-def write_tests(test_code: str, path: str = "current_tests.py") -> None:
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(test_code)
-    print(f"Tests written → {path}")
+
 
 
 # ── Step 5: Generate Code ────────────────────────────────────────────────────────────────
@@ -511,79 +422,12 @@ _JUDGE_SCHEMA = {
     "required": ["reasoning", "pass", "feedback"]
 }
 
-_PREFLECT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "needs_lookup": {"type": "boolean"},
-        "queries": {
-            "type": "array",
-            "items": {"type": "string"},
-            "maxItems": 3,
-            "description": "RAG queries to fetch more Notion API docs. Empty if needs_lookup=false."
-        }
-    },
-    "required": ["needs_lookup", "queries"]
-}
 
 
-def run_tests(test_path: str = "current_tests.py") -> Dict[str, Any]:
-    """Run pytest as a subprocess, return stdout/stderr + exit code."""
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", test_path, "-v", "--tb=short"],
-        capture_output=True, text=True,
-    )
-    return {
-        "exit_code": result.returncode,
-        "stdout":    result.stdout,
-        "stderr":    result.stderr,
-        "passed":    result.returncode == 0,
-    }
 
 
-async def _reflect_search(query: str) -> str:
-    """
-    Search Qdrant (top_k=1) for a single query and auto-summarize with a small model.
-    """
-    results = await query_qdrant(
-        query=query,
-        collection_name="notion_docs_leaf",
-        top_k=1,
-        threshold=0.3,
-    )
-    if not results:
-        return f"[No results for: {query}]"
-
-    raw_text = results[0].text
-    summary = await async_chat_wrapper(
-        [{"role": "user", "content": (
-            f"Summarize the following Notion API documentation snippet in 3-5 sentences. "
-            f"Keep all endpoint URLs, field names, and required properties verbatim.\n\n{raw_text}"
-        )}],
-        json_output=False, max_tokens=300, temperature=0.1, model_size="gemma4",
-    )
-    return f"[Query: {query}]\n{summary}"
 
 
-async def _preflect(
-    general_info: str,
-    generated_code: str,
-    test_summary: str,
-    sol_summary: str,
-) -> Dict[str, Any]:
-    """
-    Lightweight first pass: decide if extra RAG lookups are needed and which queries.
-    Returns {"needs_lookup": bool, "queries": [...]} — max 3 queries.
-    """
-    prompt = build_preflect_prompt(
-        general_info=general_info,
-        generated_code=generated_code,
-        test_summary=test_summary,
-        sol_summary=sol_summary,
-    )
-    return await async_chat_wrapper(
-        [{"role": "user", "content": prompt}],
-        json_output=True, max_tokens=300, temperature=0.1, model_size="gemma12",
-    )
 
 
 async def reflect_code(
@@ -667,244 +511,13 @@ async def reflect_code(
 # ── Evaluation ─────────────────────────────────────────────────────────────────────────────
 
 
-async def _judge_single_category(
-    category: str,
-    criteria: Dict[str, str],
-    model_size: str,
-    artifact_text: str,
-    user_query: str,
-    rag_data_str: str = "",
-) -> Dict[str, Any]:
-    """LLM judge for one evaluation category. Returns {criterion: {score, reason}}."""
-    prompt = build_judge_category_prompt(
-        category=category,
-        criteria=criteria,
-        user_query=user_query,
-        artifact_text=artifact_text,
-        rag_data_str=rag_data_str,
-    )
-
-    return await async_chat_wrapper(
-        [{"role": "user", "content": prompt}],
-        json_output=True, max_tokens=600, temperature=0.1, model_size=model_size,
-    )
 
 
-async def run_all_evaluations(
-    pipeline_artifacts: Dict[str, Any],
-    user_query: str,
-    eval_criteria: Dict[str, Dict] = EVAL_CRITERIA,
-) -> Dict[str, Any]:
-    """
-    Run ALL evaluation categories on artifacts from a single pipeline run.
-
-    All categories — including "rag" — use the adversarial LLM judge
-    (_judge_single_category). The "rag" artifact is the retrieved context text.
-
-    Returns:
-    {
-        "rag":        {criterion: {"score": 0|1, "reason": …}, …},
-        "plan":       {…},
-        "tests":      {…},
-        "code":       {…},
-        "reflection": {…},
-        "summary": {
-            "rag_score": float, "plan_score": float, "tests_score": float,
-            "code_score": float, "reflection_score": float, "overall_score": float
-        }
-    }
-    """
-    rag_context  = pipeline_artifacts.get("rag_context", "")
-    last_trial   = (pipeline_artifacts.get("trials") or [{}])[-1]
-
-    # Build reflection text from per-trial judge feedback
-    reflection_parts = [
-        f"Trial {t['trial_num']} feedback:\n{t['verdict'].get('feedback', '')}"
-        for t in pipeline_artifacts.get("trials", [])
-        if t.get("verdict", {}).get("feedback")
-    ]
-    reflection_text = "\n\n".join(reflection_parts) or "(no feedback produced)"
-
-    artifact_map = {
-        "rag":        rag_context or "(no RAG context produced)",
-        "plan":       pipeline_artifacts.get("request_plan", "(no plan produced)"),
-        "tests":      pipeline_artifacts.get("test_code",    "(no tests produced)"),
-        "code":       last_trial.get("code", pipeline_artifacts.get("final_code", "(no code produced)")),
-        "reflection": reflection_text,
-    }
-
-    # ── All categories: parallel LLM judges ──────────────────────────────────
-    judge_tasks = [
-        _judge_single_category(
-            category=cat,
-            criteria=eval_criteria[cat]["criteria"],
-            model_size=eval_criteria[cat]["model"],
-            artifact_text=artifact_map.get(cat, ""),
-            user_query=user_query,
-            rag_data_str=rag_context[:3000] if cat != "rag" else "",
-        )
-        for cat in eval_criteria
-    ]
-    judge_results = await asyncio.gather(*judge_tasks)
-
-    eval_results: Dict[str, Any] = {}
-    for cat, raw in zip(eval_criteria.keys(), judge_results):
-        eval_results[cat] = raw
-
-    # ── Compute per-category scores ───────────────────────────────────────────
-    summary: Dict[str, float] = {}
-    for category, config in eval_criteria.items():
-        criteria_keys = list(config["criteria"].keys())
-        scores = [
-            eval_results.get(category, {}).get(k, {}).get("score", 0)
-            if isinstance(eval_results.get(category, {}).get(k), dict) else 0
-            for k in criteria_keys
-        ]
-        summary[f"{category}_score"] = round(sum(scores) / max(len(criteria_keys), 1), 3)
-
-    summary["overall_score"] = round(
-        sum(v for k, v in summary.items() if k.endswith("_score")) / len(eval_criteria), 3
-    )
-    eval_results["summary"] = summary
-
-    return eval_results
 
 
 print("Evaluation functions defined.")
 
 
-def plot_evaluation_results(
-    all_results: Dict[str, Dict[str, Any]],
-    eval_criteria: Dict[str, Dict] = EVAL_CRITERIA,
-) -> None:
-    """
-    Visualize evaluation results across all eval tasks.
-    
-    Args:
-        all_results: Dict mapping task_id -> eval_results (output of run_all_evaluations).
-        eval_criteria: The criteria definitions for axis labels.
-    
-    Produces:
-        1. Grouped bar chart — per-criterion scores across tasks
-        2. Radar chart — category-level scores per task
-        3. Summary heatmap — tasks x categories
-    """
-    task_ids = list(all_results.keys())
-    categories = [c for c in eval_criteria.keys()]
-    
-    if not task_ids:
-        print("No results to plot.")
-        return
-    
-    # ── Figure 1: Summary Heatmap (tasks × categories) ───────────────────
-    fig1, ax1 = plt.subplots(figsize=(8, max(3, len(task_ids) * 1.2)))
-    
-    heatmap_data = []
-    for tid in task_ids:
-        row = []
-        summary = all_results[tid].get("summary", {})
-        for cat in categories:
-            row.append(summary.get(f"{cat}_score", 0.0))
-        heatmap_data.append(row)
-    
-    heatmap_arr = np.array(heatmap_data)
-    im = ax1.imshow(heatmap_arr, cmap="RdYlGn", vmin=0, vmax=1, aspect="auto")
-    
-    ax1.set_xticks(range(len(categories)))
-    ax1.set_xticklabels([c.title() for c in categories], rotation=45, ha="right")
-    ax1.set_yticks(range(len(task_ids)))
-    ax1.set_yticklabels(task_ids)
-    
-    # Annotate cells
-    for i in range(len(task_ids)):
-        for j in range(len(categories)):
-            val = heatmap_arr[i, j]
-            color = "white" if val < 0.4 else "black"
-            ax1.text(j, i, f"{val:.0%}", ha="center", va="center", color=color, fontweight="bold")
-    
-    fig1.colorbar(im, ax=ax1, label="Score", shrink=0.8)
-    ax1.set_title("Evaluation Heatmap — Tasks × Categories", fontweight="bold", pad=12)
-    fig1.tight_layout()
-    plt.show()
-    
-    # ── Figure 2: Per-criterion breakdown (grouped bars) ─────────────────
-    fig2, axes = plt.subplots(
-        len(categories), 1,
-        figsize=(10, 3.5 * len(categories)),
-        squeeze=False,
-    )
-    
-    colors = plt.cm.Set2(np.linspace(0, 1, max(len(task_ids), 3)))
-    
-    for cat_idx, cat in enumerate(categories):
-        ax = axes[cat_idx, 0]
-        criteria_keys = list(eval_criteria[cat]["criteria"].keys())
-        x = np.arange(len(criteria_keys))
-        width = 0.8 / max(len(task_ids), 1)
-        
-        for tid_idx, tid in enumerate(task_ids):
-            cat_result = all_results[tid].get(cat, {})
-            scores = []
-            for ck in criteria_keys:
-                entry = cat_result.get(ck, {})
-                scores.append(entry.get("score", 0) if isinstance(entry, dict) else 0)
-            
-            offset = (tid_idx - len(task_ids) / 2 + 0.5) * width
-            bars = ax.bar(x + offset, scores, width, label=tid, color=colors[tid_idx % len(colors)])
-        
-        ax.set_xticks(x)
-        ax.set_xticklabels(
-            [k.replace("_", " ").title() for k in criteria_keys],
-            rotation=30, ha="right", fontsize=8,
-        )
-        ax.set_ylim(-0.1, 1.3)
-        ax.set_ylabel("Score")
-        ax.set_title(f"{cat.upper()} (model: {eval_criteria[cat]['model']})", fontweight="bold")
-        ax.legend(fontsize=7, loc="upper right")
-        ax.axhline(y=0.5, color="gray", linestyle="--", alpha=0.4)
-    
-    fig2.suptitle("Per-Criterion Breakdown by Task", fontweight="bold", y=1.01)
-    fig2.tight_layout()
-    plt.show()
-    
-    # ── Figure 3: Radar chart — overall category scores per task ─────────
-    angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False).tolist()
-    angles += angles[:1]  # close the polygon
-    
-    fig3, ax3 = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
-    
-    for tid_idx, tid in enumerate(task_ids):
-        summary = all_results[tid].get("summary", {})
-        values = [summary.get(f"{cat}_score", 0) for cat in categories]
-        values += values[:1]
-        ax3.plot(angles, values, "o-", linewidth=2, label=tid, color=colors[tid_idx % len(colors)])
-        ax3.fill(angles, values, alpha=0.1, color=colors[tid_idx % len(colors)])
-    
-    ax3.set_thetagrids(
-        [a * 180 / np.pi for a in angles[:-1]],
-        [c.title() for c in categories],
-    )
-    ax3.set_ylim(0, 1)
-    ax3.set_title("Category Scores — Radar", fontweight="bold", pad=20)
-    ax3.legend(loc="upper right", bbox_to_anchor=(1.3, 1.1), fontsize=8)
-    fig3.tight_layout()
-    plt.show()
-    
-    # ── Print summary table ──────────────────────────────────────────────
-    print("\n" + "=" * 70)
-    print(f"{'Task':<25} {'Plan':>6} {'Tests':>6} {'Code':>6} {'Refl.':>6} {'Overall':>8}")
-    print("-" * 70)
-    for tid in task_ids:
-        s = all_results[tid].get("summary", {})
-        print(
-            f"{tid:<25} "
-            f"{s.get('plan_score', 0):>5.0%} "
-            f"{s.get('tests_score', 0):>5.0%} "
-            f"{s.get('code_score', 0):>5.0%} "
-            f"{s.get('reflection_score', 0):>5.0%} "
-            f"{s.get('overall_score', 0):>7.0%}"
-        )
-    print("=" * 70)
 
 
 print("Visualization function defined.")

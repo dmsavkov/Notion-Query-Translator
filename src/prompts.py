@@ -24,26 +24,6 @@ CODEGEN_ENV_CONTEXT = (
     "</notion_env_keys>"
 )
 
-GENERATE_TESTS_KEYS_CONTEXT = (
-    "<notion_env_keys>\n"
-    "CRITICAL: The solution module reads ALL secrets via os.getenv().\n"
-    "Your tests MUST patch env vars — never construct a NotionKeys object or pass real secrets.\n\n"
-    "  NOTION_TOKEN                – Notion API bearer token\n"
-    "  NOTION_TASKS_DATABASE_ID    – Tasks database identifier\n"
-    "  NOTION_TASKS_DATA_SOURCE_ID – Tasks data-source identifier\n"
-    "  NOTION_PROJECTS_DATABASE_ID – Projects database identifier\n"
-    "  NOTION_PROJECTS_DATA_SOURCE_ID\n"
-    "  NOTION_INBOX_PAGE_ID\n\n"
-    "Patch them like this:\n"
-    "  @pytest.fixture\n"
-    "  def env_vars():\n"
-    "      with patch.dict(os.environ, {\n"
-    "          'NOTION_TOKEN': 'test-token',\n"
-    "          'NOTION_TASKS_DATABASE_ID': 'test-db-id',\n"
-    "      }):\n"
-    "          yield\n"
-    "</notion_env_keys>"
-)
 
 JUDGE_SYSTEM = """\
 You are an unforgiving, expert-level code evaluation judge. Your standards are extremely high.
@@ -277,22 +257,6 @@ def build_domain_decompose_prompt(query: str) -> str:
     )
 
 
-def build_analyze_requirements_prompt(user_prompt: str) -> str:
-    return (
-        f"User Request: {user_prompt}\n\n"
-        "Analyze this request and identify the TOP 5 most critical things that must be "
-        "extracted from the Notion API documentation to implement this correctly.\n\n"
-        "For each item, provide:\n"
-        "  • The name of the concept/endpoint/property (key)\n"
-        "  • A one-sentence description of why it's essential (value)\n\n"
-        "Focus on:\n"
-        "  - API endpoints required\n"
-        "  - Data source / database specifics\n"
-        "  - Field/property names and types\n"
-        "  - Request/response schemas\n"
-        "  - Authentication or parameter patterns\n\n"
-        'Return ONLY valid JSON: {"requirement_name": "why it matters", ...}'
-    )
 
 
 def build_generate_request_plan_prompt(user_prompt: str, rag_context: str) -> str:
@@ -306,40 +270,8 @@ def build_generate_request_plan_prompt(user_prompt: str, rag_context: str) -> st
     )
 
 
-def build_generate_tests_draft_prompt(general_info: str) -> str:
-    return (
-        f"{general_info}\n\n"
-        f"{GENERATE_TESTS_KEYS_CONTEXT}\n\n"
-        "Write Python test cases using pytest for the function described in <user_request>.\n"
-        "HARD RULES — any violation makes the test file unusable:\n"
-        "  1. Import the target function from 'solution' (e.g. `from solution import add_task`).\n"
-        "  2. Mock ALL HTTP calls with unittest.mock.patch (requests.post / requests.get / etc.).\n"
-        "  3. Patch env vars with unittest.mock.patch.dict(os.environ, {...}) — NEVER pass raw secrets.\n"
-        "  4. Do NOT instantiate NotionKeys or pass notion_keys objects; the function reads os.getenv internally.\n"
-        "  5. Cover: happy path, missing required field (should raise), API 4xx/5xx error response.\n"
-        "  6. Use EXACT field names and endpoint URLs from <api_context> in assertions.\n"
-        "  7. Output only valid Python — no markdown fences.\n\n"
-        'Return as JSON: {"test_code": "<full python code>"}'
-    )
 
 
-def build_generate_tests_grade_prompt(general_info: str, candidates_block: str) -> str:
-    return (
-        f"{general_info}\n\n"
-        "You are a senior Python test engineer reviewing three test drafts.\n\n"
-        f"{candidates_block}\n\n"
-        "Select or merge the best tests. REJECT any code that:\n"
-        "  • Hardcodes a real token, database ID or any Notion secret.\n"
-        "  • Passes a NotionKeys object or dict of secrets directly to the function.\n"
-        "  • Does not patch os.environ for every env-var the function needs.\n"
-        "  • Has import errors, undefined names, or duplicate test logic.\n\n"
-        "REQUIREMENTS for the final file:\n"
-        "  • All imports at the top (os, pytest, unittest.mock, etc.).\n"
-        "  • All HTTP calls mocked with unittest.mock.patch.\n"
-        "  • All env vars mocked with unittest.mock.patch.dict(os.environ, {...}).\n"
-        "  • Runnable with `pytest current_tests.py` without modification.\n\n"
-        'Return as JSON: {"test_code": "<complete runnable code>", "reasoning": "<brief>"}'
-    )
 
 
 def build_generate_code_prompt(
@@ -386,32 +318,6 @@ def build_generate_code_prompt(
     )
 
 
-def build_preflect_prompt(
-    general_info: str,
-    generated_code: str,
-    test_summary: str,
-    sol_summary: str,
-) -> str:
-    return (
-        f"{general_info}\n\n"
-        "<generated_code>\n"
-        f"{generated_code}\n"
-        "</generated_code>\n\n"
-        "<test_results>\n"
-        f"{test_summary}\n"
-        "</test_results>\n\n"
-        f"{sol_summary}"
-        "You are about to diagnose a code failure against the Notion API.\n"
-        "Before doing so: decide if the <api_context> already contains enough information "
-        "to pinpoint the exact failing endpoint, field names, or schema — or if you need "
-        "to look up additional Notion API documentation.\n\n"
-        "If you need more information, specify up to 3 precise RAG queries that would return "
-        "the missing Notion API details (e.g., 'POST /v1/pages request body properties', "
-        "'tasks database select property options', 'Notion block children append endpoint').\n"
-        "Only request a lookup if genuinely needed — do not look up things already answered "
-        "by <api_context>.\n\n"
-        'Return JSON: {"needs_lookup": bool, "queries": ["...", ...]}'
-    )
 
 
 def build_reflect_code_prompt(
@@ -458,24 +364,6 @@ def build_reflect_code_prompt(
     )
 
 
-def build_judge_category_prompt(
-    category: str,
-    criteria: Dict[str, str],
-    user_query: str,
-    artifact_text: str,
-    rag_data_str: str = "",
-) -> str:
-    criteria_block = "\n".join(f"  - {k}: {v}" for k, v in criteria.items())
-    rag_section = f"## RAG Context (reference)\n{rag_data_str}\n\n" if rag_data_str else ""
-    return (
-        f"{JUDGE_SYSTEM}\n\n"
-        f"## Category: {category.upper()}\n\n"
-        f"## User Query\n{user_query}\n\n"
-        f"{rag_section}"
-        f"## Artifact to Evaluate\n```\n{artifact_text}\n```\n\n"
-        f"## Criteria\n{criteria_block}\n\n"
-        "Evaluate now. Return ONLY the JSON object."
-    )
 
 
 def build_concision_prompt(max_words: int) -> str:
@@ -507,63 +395,6 @@ def build_concision_prompt(max_words: int) -> str:
 # All categories use the same adversarial LLM judge.
 # "rag" is evaluated against the retrieved context text, like any other artifact.
 
-EVAL_CRITERIA = {
-    "rag": {
-        "model": "gemma12",
-        "criteria": {
-            "topic_matched":      "The majority of retrieved chunks are clearly on-topic for the user query — not generic, off-topic, or loosely related sections.",
-            "objects_coverage":   "The key Notion objects explicitly mentioned in the query (e.g. page, database, block, property type) are substantively discussed in the retrieved chunks.",
-            "endpoint_presence":  "At least one relevant Notion API endpoint URL or HTTP method appears in the retrieved chunks, or the query is purely conceptual and no endpoint is needed.",
-            "properties_covered": "The specific property names and payload fields needed to fulfil the query are mentioned in the retrieved chunks — not just the object type in general.",
-        },
-    },
-    "plan": {
-        "model": "gemma27",
-        "criteria": {
-            "plan_is_direct":     "The plan directly addresses the user query without unnecessary preamble or tangents.",
-            "plan_is_actionable": "Every bullet point describes a concrete, implementable step — not vague advice.",
-            "plan_is_concise":    "The plan is tight — no redundant bullets, no filler text, no repeated information.",
-            "plan_matches_query": "The plan fully covers the user's actual request — no missing steps, no hallucinated extras.",
-        },
-    },
-    "tests": {
-        "model": "gemma12",
-        "criteria": {
-            "tests_relevant_to_problem":      "Each test targets behaviour described in the user query — no irrelevant or generic tests.",
-            "tests_match_rag_data":           "Tests use the exact endpoint URLs, field names and schemas from the RAG context — not invented ones.",
-            "tests_cover_edge_cases":         "Tests include at least: missing required fields, API error responses, and boundary values.",
-            "tests_cover_core_functionality": "The happy-path test validates the complete request body structure, headers and return value.",
-            "tests_file_is_runnable":         "The test file is syntactically valid Python 3, all imports resolve, and pytest can collect every test.",
-            "tests_pass_when_executed":       "When tests are enabled, pytest exits successfully (exit_code == 0).",
-        },
-    },
-    "code": {
-        "model": "gemma27",
-        "criteria": {
-            "code_matches_query":    "The function implements exactly what the user asked for — no more, no less.",
-            "code_matches_rag_data": "Endpoint URLs, HTTP methods, request body structure and field names match the RAG context precisely.",
-            "code_is_concise":       "No dead code, no commented-out blocks, no unnecessary abstractions for a single-purpose function.",
-            "code_is_modular":       "Logic is cleanly separated: header construction, body construction, HTTP call, error handling are distinct.",
-            "code_doesnt_leak_data": "No hardcoded API tokens, database IDs or secrets anywhere in the source — zero tolerance.",
-            "code_uses_os_getenv":   "All sensitive keys are loaded via os.getenv() — either at module level or as function parameters defaulting to os.getenv().",
-            "code_is_runnable":      "The file is syntactically valid, imports succeed, and the function can be called without crashing on valid inputs.",
-            "code_is_documented":    "Public functions include meaningful docstrings and type hints.",
-        },
-    },
-    "reflection": {
-        "model": "gemma12",
-        "criteria": {
-            "correctly_understands_traces":       "The reflection accurately identifies what went wrong (or right) based on test output and error traces.",
-            "actionable_feedback":                "Every piece of feedback suggests a specific code change — not vague observations like 'improve error handling'.",
-            "feedback_helps_solve_errors":        "Following the feedback would actually fix the identified issues — not introduce new ones.",
-            "feedback_identifies_critical_error": "The most critical/blocking error is called out first; minor style issues are deprioritised or omitted.",
-            "checks_user_request_correctness":    "Feedback verifies whether the implementation truly matches the user request.",
-            "checks_api_schema_correctness":      "Feedback verifies API endpoint/body/schema correctness against the provided Notion context.",
-            "checks_runtime_safety":              "Feedback explicitly flags syntax/runtime blockers that prevent successful execution.",
-            "checks_code_modularity":             "Feedback highlights missing separation of concerns when modularity is inadequate.",
-        },
-    },
-}
 
 
 def build_prompt_statements(context: str, statements: List[str]) -> str:

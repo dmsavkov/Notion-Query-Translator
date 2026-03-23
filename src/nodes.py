@@ -45,9 +45,6 @@ async def _create_queries(
         additional_queries = await engineer.cot_decompose(query)
     elif query_method == "domain_decompose":
         additional_queries = await engineer.domain_decompose(query)
-    else:
-        # Fallback
-        additional_queries = await engineer.cot_decompose(query)
     
     queries = additional_queries + [query]
     return queries
