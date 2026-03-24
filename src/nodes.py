@@ -17,8 +17,8 @@ from .all_functionality import (
     generate_code,
     generate_request_plan,
     reflect_code,
-    write_solution,
 )
+from .execution_utils import run_isolated_code
 from .config import SearchResult
 from .hardcoded_contexts import ContextUsed, get_hardcoded_context
 from .rag_utils import (
@@ -157,7 +157,6 @@ async def codegen_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
     )
     generated_code = code_result.get("code", "")
     function_name = code_result.get("function_name", "")
-    write_solution(generated_code)
     return {
         "generated_code": generated_code,
         "function_name": function_name,
@@ -166,18 +165,14 @@ async def codegen_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
 
 
 async def execute_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
-    sol_run = subprocess.run(
-        [sys.executable, "solution.py"],
-        capture_output=True,
-        text=True,
-        timeout=30,
+    # Execute the generated code using the centralized isolation utility
+    result = run_isolated_code(
+        code=state["generated_code"],
+        task_id=state["task_id"]
     )
+    
     return {
-        "solution_run": {
-            "exit_code": sol_run.returncode,
-            "stdout": sol_run.stdout,
-            "stderr": sol_run.stderr,
-        }
+        "solution_run": result.model_dump()
     }
 
 
@@ -187,12 +182,12 @@ async def reflect_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
     temperature: float = ref_params["model_temperature"]
     max_tokens: int = ref_params["max_tokens"]
 
-    solution_run = state.get("solution_run") or {"exit_code": None, "stdout": "", "stderr": ""}
+    solution_run = state.get("solution_run") or {"exit_code": None, "stdout": "", "stderr": "", "passed": False}
     test_results = {
         "exit_code": solution_run["exit_code"],
         "stdout": solution_run["stdout"],
         "stderr": solution_run["stderr"],
-        "passed": solution_run["exit_code"] == 0,
+        "passed": solution_run["passed"],
     }
 
     reflection_context = list(state.get("reflection_context", []))
