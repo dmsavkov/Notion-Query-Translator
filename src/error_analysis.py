@@ -63,14 +63,13 @@ class HumanConfig:
     Judging:
     - judging_enabled: whether to run LLM judges on section outputs.
     """
-
-    include_code: bool = True
-    include_code_execution: bool = True
+    include_code: bool = False
+    include_code_execution: bool = False
     include_code_statements: bool = True
-    include_rag: bool = True
-    include_rag_statements: bool = True
-    include_plans: bool = True
-    include_all_in_one: bool = True
+    include_rag: bool = False
+    include_rag_statements: bool = False
+    include_plans: bool = False
+    include_all_in_one: bool = False
     include_code_mismatches: bool = True
     judging_enabled: bool = True
     statement_status_filter: Literal["both", "wrong", "right"] = "both"
