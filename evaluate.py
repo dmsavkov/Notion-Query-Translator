@@ -71,6 +71,7 @@ def _synthesize_eval_context(
     state = outputs.get("pre_computed_state", {}) or {}
     retrieval_context = state.get("retrieval_context", "")
     final_code = state.get("final_code") or state.get("generated_code") or ""
+    execution_output = state.get("execution_output", "")
 
     # Extract all ground truth from reference_outputs
     task = reference_outputs.get("task", "")
@@ -85,6 +86,7 @@ def _synthesize_eval_context(
         "solution": solution,
         "retrieval_context": retrieval_context,
         "final_code": final_code,
+        "execution_output": execution_output,
         "correct_statements": statements,
     }
 

@@ -171,8 +171,10 @@ async def execute_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
         task_id=state["task_id"]
     )
     
+    # Store both the raw result and the flattened output for easy access
     return {
-        "solution_run": result.model_dump()
+        "solution_run": result.model_dump(),
+        "execution_output": result.stdout if result.passed else f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
     }
 
 
@@ -213,7 +215,6 @@ async def reflect_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
     return {
         "feedback": verdict.get("feedback", ""),
         "verdict": verdict,
-        "passed": bool(verdict.get("pass", False)),
         "trials": [*state.get("trials", []), trial],
         "reflection_context": reflection_context,
         "final_code": state.get("generated_code", ""),

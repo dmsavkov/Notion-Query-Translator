@@ -113,12 +113,12 @@ class PipelineState(TypedDict):
     generated_code: str
     function_name: str
     solution_run: Dict[str, Any]
+    execution_output: str
     reflection_context: List[str]
     feedback: str
     verdict: Dict[str, Any]
     trials: List[Dict[str, Any]]
     final_code: str
-    passed: bool
     queries: Annotated[List[str], operator.add]
 
 
@@ -130,8 +130,10 @@ def route_after_codegen(state: PipelineState, config: RunnableConfig) -> str:
 
 
 def route_after_reflect(state: PipelineState, config: RunnableConfig) -> str:
-    if state.get("passed", False):
+    # Use the LLM's pass/fail verdict for routing
+    if state.get("verdict", {}).get("pass", False):
         return END
+    
     max_trials = config["configurable"]["pipeline_params"]["max_trials"]
     if state.get("trial_num", 0) >= max_trials:
         return END
@@ -202,12 +204,12 @@ async def main(eval_tasks: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[s
                     "generated_code": "",
                     "function_name": "",
                     "solution_run": {},
+                    "execution_output": "",
                     "reflection_context": [],
                     "feedback": "",
                     "verdict": {},
                     "trials": [],
                     "final_code": "",
-                    "passed": False,
                     "queries": [],
                 }
 
@@ -231,19 +233,18 @@ async def main(eval_tasks: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[s
                                 metadata=configurable
                             )
                         )
+                        # State is now self-contained
+                        execution_output = final_state.get("execution_output", "")
                         final_code = str(final_state.get("final_code") or final_state.get("generated_code") or "")
-                        
-                        # Final verification execution using standardized utility
-                        exec_result = run_isolated_code(final_code, task_id)
-                        passed = exec_result.passed
+                        passed = final_state.get("solution_run", {}).get("passed", False)
                         
                         print(f"{task_id}: {'PASS' if passed else 'FAIL'}")
                         return task_id, {
                             "passed": passed,
                             "final_code": final_code,
                             "trials": final_state.get("trials", []),
-                            "output": exec_result.stdout,
-                            "execution": exec_result.model_dump(),
+                            "output": execution_output,
+                            "execution": final_state.get("solution_run", {}),
                             "function_name": str(final_state.get("function_name", "")),
                         }
                     except Exception as e:
