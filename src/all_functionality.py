@@ -10,6 +10,7 @@ import subprocess
 import sys
 from functools import partial
 from typing import Any, Dict, List, Literal, Optional
+import yaml
 
 import openai
 from json_repair import repair_json
