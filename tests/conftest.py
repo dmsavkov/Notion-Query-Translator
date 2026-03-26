@@ -8,9 +8,20 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 @pytest.fixture
 def mock_chat_wrapper():
-    """Fixture to mock async_chat_wrapper for orchestration tests."""
-    with patch("src.nodes.async_chat_wrapper", new_callable=AsyncMock) as mock:
-        yield mock
+    """Fixture to mock async_chat_wrapper for orchestration tests.
+    
+    Patches BOTH locations where async_chat_wrapper is referenced:
+    1. src.all_functionality.async_chat_wrapper — where it's defined and directly called
+    2. src.nodes.async_chat_wrapper — where it's imported and used with partial()
+    
+    Both patches must use the same mock object so side_effect synchronizes correctly.
+    """
+    # Create a single mock to be used in both locations
+    shared_mock = AsyncMock()
+    
+    with patch("src.all_functionality.async_chat_wrapper", shared_mock):
+        with patch("src.nodes.async_chat_wrapper", shared_mock):
+            yield shared_mock
 
 @pytest.fixture(scope="session")
 def provisioned_env():
