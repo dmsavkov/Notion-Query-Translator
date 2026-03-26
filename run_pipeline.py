@@ -123,10 +123,17 @@ class PipelineState(TypedDict):
 
 
 def route_after_codegen(state: PipelineState, config: RunnableConfig) -> str:
-    minimal = config["configurable"]["pipeline_params"]["minimal"]
+    # Always execute at least once so pass/fail reflects real runtime behavior.
+    return "execute"
+
+
+def route_after_execute(state: PipelineState, config: RunnableConfig) -> str:
+    cfg = cast(Dict[str, Any], config.get("configurable", {}))
+    pipeline_params = cast(Dict[str, Any], cfg.get("pipeline_params", {}))
+    minimal = bool(pipeline_params.get("minimal", False))
     if minimal:
         return END
-    return "execute"
+    return "reflect"
 
 
 def route_after_reflect(state: PipelineState, config: RunnableConfig) -> str:
@@ -153,7 +160,7 @@ def build_pipeline():
     graph.add_edge("retrieve", "plan")
     graph.add_edge("plan", "codegen")
     graph.add_conditional_edges("codegen", route_after_codegen)
-    graph.add_edge("execute", "reflect")
+    graph.add_conditional_edges("execute", route_after_execute)
     graph.add_conditional_edges("reflect", route_after_reflect)
 
     return graph
