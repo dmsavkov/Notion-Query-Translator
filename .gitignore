@@ -45,6 +45,10 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
+# pytest-recording VCR cassettes (recorded HTTP interactions)
+**/cassettes/
+*.cassette.yaml
+
 # Jupyter Notebook
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
