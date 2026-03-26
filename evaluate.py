@@ -72,6 +72,7 @@ def _synthesize_eval_context(
     retrieval_context = state.get("retrieval_context", "")
     final_code = state.get("final_code") or state.get("generated_code") or ""
     execution_output = state.get("execution_output", "")
+    solution_run = state.get("solution_run") or outputs.get("execution") or {}
 
     # Extract all ground truth from reference_outputs
     task = reference_outputs.get("task", "")
@@ -86,6 +87,7 @@ def _synthesize_eval_context(
         "solution": solution,
         "retrieval_context": retrieval_context,
         "final_code": final_code,
+        "solution_run": solution_run,
         "execution_output": execution_output,
         "correct_statements": statements,
     }
@@ -179,7 +181,11 @@ async def _load_recent_states(
                     break
         finally:
             # Explicitly close iterator when stopping early to avoid noisy GeneratorExit warnings.
-            await checkpoint_iter.aclose()
+            aclose = cast(Any, getattr(checkpoint_iter, "aclose", None))
+            if callable(aclose):
+                maybe_awaitable = aclose()
+                if hasattr(maybe_awaitable, "__await__"):
+                    await cast(Any, maybe_awaitable)
 
         for thread_id in thread_ids:
             config = cast(RunnableConfig, {"configurable": {"thread_id": thread_id}})
@@ -337,9 +343,11 @@ class CodeExecutionEvaluator:
             reference_outputs=reference_outputs,
         )
         task_id = ctx["task_id"]
-        final_code = ctx["final_code"]
 
-        result = await self.evaluator.eval_code_exec(final_code)
+        result = await self.evaluator.eval_code_exec(
+            execution=cast(Dict[str, Any], ctx.get("solution_run") or {}),
+            execution_output=str(ctx.get("execution_output") or ""),
+        )
         execution_pass = bool(result.get("pass", False))
 
         return {

@@ -9,9 +9,6 @@ Key design:
 """
 
 import asyncio
-import contextlib
-import io
-import json
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -136,44 +133,55 @@ class Evaluator:
 
         return parse_statements_response(result)
     
-    async def eval_code_exec(self, code: str) -> Dict[str, Any]:
+    async def eval_code_exec(
+        self,
+        execution: Optional[Dict[str, Any]],
+        execution_output: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
-        Execute code and capture success/failure, output, errors.
-        
-        No LLM involved — deterministic execution result.
-        
+        Normalize already-computed execution results from pipeline state.
+
+        This function intentionally performs no runtime code execution.
+
         Args:
-            code: Python code string to execute
-        
+            execution: Execution payload from state (e.g., solution_run)
+            execution_output: Optional flattened output from state
+
         Returns:
-            Dict with execution result:
+            Dict with normalized execution result:
             {
                 "pass": bool,
-                "output": str (stdout),
-                "errors": str or None (stderr/exception),
+                "output": str,
+                "errors": str or None,
+                "source": "state" | "state_missing",
             }
         """
-        stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
-        
-        try:
-            with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
-                exec(code, {"__name__": "__main__"})
-            
-            result = {
-                "pass": True,
-                "output": stdout_buf.getvalue(),
-                "errors": None,
-            }
-        
-        except (Exception, SystemExit) as e:
+        if not isinstance(execution, dict) or not execution:
             result = {
                 "pass": False,
-                "output": stdout_buf.getvalue(),
-                "errors": str(e),
+                "output": execution_output or "",
+                "errors": "Missing precomputed execution result in state.",
+                "source": "state_missing",
             }
-        
-        logger.info("eval_code_exec | pass=%s", result["pass"])
+            logger.warning("eval_code_exec | missing execution payload in state")
+            return result
+
+        passed = bool(execution.get("passed", execution.get("pass", False)))
+        stdout = str(execution.get("stdout", execution_output or ""))
+        stderr = str(execution.get("stderr", ""))
+        error = execution.get("error")
+
+        if error not in (None, ""):
+            stderr = f"{stderr}\n{error}" if stderr else str(error)
+
+        result = {
+            "pass": passed,
+            "output": stdout,
+            "errors": None if passed else (stderr or "Execution failed in pipeline (no stderr captured)."),
+            "source": "state",
+        }
+
+        logger.info("eval_code_exec | pass=%s | source=%s", result["pass"], result["source"])
         return result
     
     async def eval_code(
@@ -181,16 +189,20 @@ class Evaluator:
         code: str,
         statements: List[str],
         judge_model_name: Optional[str] = None,
+        execution_result: Optional[Dict[str, Any]] = None,
+        execution_output: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Orchestrate code execution + statement validation.
-        
+        Orchestrate state-backed execution validation + statement validation.
+
         Runs both in parallel (independent), then merges results.
         
         Args:
             code: Python code to evaluate
             statements: Technical statements/requirements the code should satisfy
             judge_model_name: Model for statement validation (None = use default)
+            execution_result: Optional precomputed execution payload from state
+            execution_output: Optional flattened output from state
         
         Returns:
             Merged dict:
@@ -209,8 +221,8 @@ class Evaluator:
             }
         """
         # Run both evaluations in parallel (independent)
-        execution_result, statements_result = await asyncio.gather(
-            self.eval_code_exec(code),
+        execution_eval_result, statements_result = await asyncio.gather(
+            self.eval_code_exec(execution=execution_result, execution_output=execution_output),
             self.eval_context_statements(
                 context=code,
                 statements=statements,
@@ -220,6 +232,6 @@ class Evaluator:
         
         # Merge with nested keys to avoid collisions
         return {
-            "execution": execution_result,
+            "execution": execution_eval_result,
             "statements": statements_result,
         }
