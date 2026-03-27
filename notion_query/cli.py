@@ -1,8 +1,10 @@
 import asyncio
 
 import typer
+from rich.console import Console
 
 app = typer.Typer(help="CLI for running the Notion agent pipeline.")
+console = Console()
 
 
 @app.command()
@@ -39,24 +41,21 @@ def run(
     error = task_result.get("error")
     
     if error:
-        typer.secho(f"❌ Error: {error}", fg=typer.colors.RED)
+        console.print(f"❌ [bold red]Error:[/bold red] {error}")
         raise typer.Exit(code=1)
     
-    status_color = typer.colors.GREEN if passed else typer.colors.YELLOW
-    status_text = "✓ PASS" if passed else "✗ FAIL"
-    typer.secho(status_text, fg=status_color, bold=True)
-
     if passed:
-        typer.echo("\n" + "="*60)
-        typer.echo("Execution Output:")
-        typer.echo("="*60)
-        typer.echo(output or "(no output)")
+        console.print("[bold green]✓ PASS[/bold green]")
+        console.print("\n[bold cyan]Execution Output:[/bold cyan]")
+        console.print(output or "(no output)")
+    else:
+        console.print("[bold yellow]✗ FAIL[/bold yellow]")
+        console.print("\n[bold yellow]Output:[/bold yellow]")
+        console.print(output or "(no output)")
     
     if final_code:
-        typer.echo("\n" + "="*60)
-        typer.echo("Generated Code:")
-        typer.echo("="*60)
-        typer.echo(final_code)
+        console.print("\n[bold cyan]Generated Code:[/bold cyan]")
+        console.print(final_code)
 
 
 if __name__ == "__main__":
