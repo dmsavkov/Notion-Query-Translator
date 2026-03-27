@@ -1,22 +1,15 @@
-import sys
-import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-
-_fake_all_functionality = types.ModuleType("src.all_functionality")
-
-
-async def _fake_async_chat_wrapper(*args, **kwargs):
-    return "stub"
-
-
-_fake_all_functionality.async_chat_wrapper = _fake_async_chat_wrapper
-sys.modules.setdefault("src.all_functionality", _fake_all_functionality)
-
-from src.error_analysis import HumanConfig, _build_section_payloads, _statement_items, load_experiment_runs, run_error_analysis
+from src.error_analysis import (
+    HumanConfig,
+    _build_section_payloads,
+    _statement_items,
+    load_experiment_runs,
+    run_error_analysis,
+)
 
 
 def _sample_record() -> dict:
