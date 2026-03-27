@@ -1,8 +1,18 @@
+import os
+
 import pytest
+
+os.environ["LANGSMITH_TRACING"] = "false"
+
 from src.all_functionality import async_chat_wrapper
 
 @pytest.mark.llm
-@pytest.mark.vcr
+@pytest.mark.vcr(
+    record_mode="new_episodes",
+    ignore_hosts=["api.smith.langchain.com"],
+    filter_headers=["authorization", "x-api-key"],
+    match_on=["method", "scheme", "host", "port", "path", "query"],
+)
 @pytest.mark.asyncio
 async def test_async_chat_wrapper_real_gemma4():
     """
