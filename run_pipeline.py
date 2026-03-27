@@ -294,13 +294,14 @@ async def main(
             update={"minimal": not cli_params.think}
         )
 
-    if cli_params is not None:
+    if cli_params is not None and dev_mode:
         warnings.warn(
             "cli_params were provided while dev_mode=True; development mode is turned off"
             "and CLI task input is used.",
             stacklevel=2,
         )
         
+    if cli_params is not None:
         final_eval_tasks = build_cli_eval_tasks(cli_params)
     
     elif dev_mode:
