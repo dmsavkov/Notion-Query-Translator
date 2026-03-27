@@ -1,0 +1,167 @@
+# Notion Query Translator
+
+[![Python Version](https://img.shields.io/badge/python-3.13.5%2B-blue.svg)](https://python.org)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.0.10-orange.svg)](https://github.com/langchain-ai/langgraph)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](#)
+
+**Notion Query Translator** is an advanced, LLM-powered agent system designed to translate natural language user requests into executable, precise Python code to interact with the Notion API.
+
+Built on top of [LangGraph](https://github.com/langchain-ai/langgraph), it features a robust Retrieval-Augmented Generation (RAG) pipeline to consult Notion's API documentation, an isolated code-execution sandbox, and a self-reflection loop that autonomously debugs and corrects API mismatches before returning the final result.
+
+---
+
+## 🎯 What it does
+
+Instead of manually writing complex JSON payloads, handling pagination, or managing database relation lookups, you can simply ask the agent to perform a task:
+
+> _"Find tasks where the 'Last Reviewed' date is older than 30 days. Archive them and add a comment to each saying 'This task is stale. Archived.'"_
+
+The agent will:
+
+1. **Retrieve** the correct Notion API documentation and your workspace's database schema.
+2. **Plan** a step-by-step implementation.
+3. **Generate** the Python code using the `requests` library.
+4. **Execute** the code in a sandboxed environment.
+5. **Reflect & Repair** if the Notion API returns an error (e.g., HTTP 400 Bad Request), adjusting schemas and re-executing until successful.
+
+## ✨ Key Features
+
+- **Agentic Workflow**: Uses a state machine (`retrieve` → `plan` → `codegen` → `execute` → `reflect`) to ensure high-reliability code generation.
+- **Local RAG Pipeline**: Ingests Notion documentation into a local [Qdrant](https://qdrant.tech/) vector database, chunked optimally with `chonkie` and embedded using `fastembed`.
+- **Advanced Query Engineering**: Implements Multi-Query, Chain-of-Thought (CoT) Decomposition, and Domain Decomposition to maximize retrieval accuracy.
+- **Evaluation Harness**: Deep integration with [LangSmith](https://smith.langchain.com/) for running deterministic, synthetic API benchmarks (`evals/`) across different LLM models (e.g., Google Gemini, Gemma).
+- **Automated Error Analysis**: Consolidates evaluation results and posts structured diagnostic reports directly back to your Notion workspace.
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Python >= 3.13.5
+- A Notion Integration Token (Create one at [notion.so/my-integrations](https://www.notion.so/my-integrations))
+- Google Gemini API Key (or applicable OpenAI-compatible endpoints)
+- [uv](https://docs.astral.sh/uv/) (Recommended for fast dependency management)
+
+### Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/your-username/notion-query-translator.git
+   cd notion-query-translator
+   ```
+
+Install dependencies:
+This project uses pyproject.toml and supports uv.
+
+```bash
+# Create a virtual environment and install the package with dev dependencies
+
+uv venv
+source .venv/bin/activate # On Windows: .venv\Scripts\activate
+uv pip install -e ".[dev]"
+```
+
+Configure Environment Variables:
+Copy the example environment file and fill in your keys:
+
+```bash
+cp .env.example .env
+```
+
+Make sure to fill in your `NOTION_TOKEN`, `GOOGLE_API_KEY`, and `LANGSMITH_API_KEY` (if running evaluations).
+
+Provision the Test Environment (Optional but recommended):
+If you want to run the evaluation suite safely without touching your real Notion data, run the setup script to provision a sandbox Notion database:
+
+```bash
+python evals/test_dbs_script.py
+```
+
+This will automatically update your .env with the newly created test database IDs.
+
+Build the RAG Database:
+Initialize the local Qdrant vector database with the Notion API corpora:
+
+```bash
+python build_rag.py
+```
+
+💻 Usage
+Command Line Interface (CLI)
+
+The project includes a CLI powered by Typer. You can interact with the agent directly from your terminal:
+
+```bash
+# Run a simple request
+
+notion-agent run "Create a new task called 'Review Architecture'"
+
+# Run with self-reflection and planning enabled (Think Mode)
+
+notion-agent run "Find all unstarted urgent tasks and mark them as Do Now" --think
+```
+
+Running the Evaluation Pipeline
+
+To run the LangSmith evaluation suite against the YAML test cases defined in evals/:
+
+```bash
+# Execute the agent against the test cases
+
+python run_pipeline.py
+
+# Evaluate the generated artifacts (Code, RAG context, Execution pass/fail) using LLM-as-a-judge
+
+python evaluate.py
+```
+
+Retrieving your Database Schemas
+
+To ground the agent in your specific workspace structure, you can generate a schema report:
+
+```bash
+python scripts/schema_retriever.py
+```
+
+This fetches your workspace databases and generates a token-efficient Python TypedDict representation to be injected into the LLM context.
+
+📁 Project Structure
+
+```
+dmsavkov-notion-query-translator/
+├── data/
+│ ├── .qdrant_storage/ # Local Qdrant vector DB
+│ └── context/ # Hardcoded contexts and schema reports
+├── evals/ # YAML-based evaluation benchmarks (simple & complex)
+├── notion_query/ # CLI entry points
+├── scripts/ # Utilities for schema retrieval and error analysis
+├── src/ # Core application logic
+│ ├── nodes.py # LangGraph node definitions
+│ ├── prompts.py # System prompts and templates
+│ ├── rag_utils.py # Qdrant search and query decomposition
+│ ├── evaluator.py # LangSmith evaluation judges
+│ └── execution_utils.py # Isolated Python execution sandbox
+└── tests/ # Pytest test suites (unit, integration, smoke)
+```
+
+🤝 Contributing
+
+Contributions are welcome! Please follow these steps:
+
+- Fork the repository.
+- Create a new branch (`git checkout -b feature/amazing-feature`).
+- Run the test suite to ensure nothing is broken (`pytest tests/`).
+- Commit your changes (`git commit -m 'Add amazing feature'`).
+- Push to the branch (`git push origin feature/amazing-feature`).
+- Open a Pull Request.
+
+Please ensure all new functionality is covered by unit tests in the `tests/` directory.
+
+🆘 Help and Support
+
+- If you encounter a bug or have a feature request, please open an issue on GitHub.
+- For questions about the Notion API itself, refer to the [Official Notion API Documentation](https://developers.notion.com/reference).
+- For tracing and debugging LLM trajectories, check your [LangSmith Dashboard](https://smith.langchain.com/).
+
+Maintainer: dmsavkov
