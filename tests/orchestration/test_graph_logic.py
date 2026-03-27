@@ -203,6 +203,7 @@ async def test_plan_node_passes_cfg_into_internal_chat_fn():
 @pytest.mark.asyncio
 async def test_codegen_node_passes_cfg_to_generate_code():
     state = {
+        "user_prompt": "Write code to solve the task",
         "general_info": "General info block",
         "feedback": "Fix header",
         "trial_num": 1,
