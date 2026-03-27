@@ -95,11 +95,11 @@ The project includes a CLI powered by Typer. You can interact with the agent dir
 ```bash
 # Run a simple request
 
-notion-agent run "Create a new task called 'Review Architecture'"
+notion-agent "Create a new task called 'Review Architecture'"
 
 # Run with self-reflection and planning enabled (Think Mode)
 
-notion-agent run "Find all unstarted urgent tasks and mark them as Do Now" --think
+notion-agent "Find all unstarted urgent tasks and mark them as Do Now" --think
 ```
 
 Running the Evaluation Pipeline
