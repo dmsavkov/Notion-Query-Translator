@@ -1,5 +1,4 @@
 import asyncio
-from typing import Any, Dict
 
 import typer
 
@@ -18,20 +17,14 @@ def run(
 ) -> None:
     """Run the Notion agent pipeline for a single user prompt.
 
-    This command wraps the async pipeline entrypoint and constructs the
-    required tasks payload from `user_prompt`.
+    This command wraps the async pipeline entrypoint and passes
+    structured CLI parameters to `main`.
     """
-    tasks: Dict[str, Dict[str, Any]] = {
-        "user_request": {
-            "query": user_prompt,
-            "think": think,
-        }
-    }
-
-    from run_pipeline import main
+    from run_pipeline import CliParams, main
 
     try:
-        result = asyncio.run(main(eval_tasks=tasks))
+        cli_params = CliParams(user_prompt=user_prompt, think=think)
+        result = asyncio.run(main(cli_params=cli_params, dev_mode=False))
     except Exception as exc:
         typer.secho(f"Error: {exc}", fg=typer.colors.RED)
         raise typer.Exit(code=1)

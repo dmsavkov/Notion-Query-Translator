@@ -3,6 +3,7 @@ import contextlib
 import io
 import operator
 from dataclasses import asdict
+import warnings
 from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict, cast
 import datetime
 
@@ -90,6 +91,14 @@ class PipelineParams(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
+class CliParams(BaseModel):
+    """CLI-level parameters passed into the pipeline entrypoint."""
+    user_prompt: str
+    think: bool = False
+
+    model_config = ConfigDict(frozen=True)
+
+
 class StaticParams(BaseModel):
     """Static parameters for pipeline initialization."""
     evals_dir: str = "evals"
@@ -120,6 +129,36 @@ class PipelineState(TypedDict):
     trials: List[Dict[str, Any]]
     final_code: str
     queries: Annotated[List[str], operator.add]
+
+
+def build_cli_eval_tasks(cli_params: CliParams) -> Dict[str, Dict[str, Any]]:
+    return {
+        "user_request": {
+            "query": cli_params.user_prompt,
+            "think": cli_params.think,
+        }
+    }
+
+
+def generate_default_state(task_id: str, user_prompt: str) -> PipelineState:
+    return {
+        "task_id": task_id,
+        "user_prompt": user_prompt,
+        "retrieval_context": "",
+        "request_plan": "",
+        "general_info": "",
+        "trial_num": 0,
+        "generated_code": "",
+        "function_name": "",
+        "solution_run": {},
+        "execution_output": "",
+        "reflection_context": [],
+        "feedback": "",
+        "verdict": {},
+        "trials": [],
+        "final_code": "",
+        "queries": [],
+    }
 
 
 def route_after_codegen(state: PipelineState, config: RunnableConfig) -> str:
@@ -166,27 +205,13 @@ def build_pipeline():
     return graph
 
 
-async def main(eval_tasks: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Dict[str, Any]]:
-    static_params = StaticParams()
-    
-    if eval_tasks is None:
-        DEV_MODE = True
-    else:
-        DEV_MODE = False
-    
-    if DEV_MODE:
-        print("Setting up test infrastructure...")
-        provision_infrastructure()
-        print("Test infrastructure ready.\n")
-        
-        eval_tasks = load_eval_tasks(
-            evals_dir=static_params.evals_dir,
-            case_type=static_params.case_type
-        )
-
-    if eval_tasks is None:
-        raise ValueError("No evaluation tasks were provided or loaded.")
-    
+async def run(
+    eval_tasks: Dict[str, Dict[str, Any]],
+    static_params: StaticParams,
+    pipeline_params: PipelineParams,
+    agent_params: AgentParams,
+    rag_build_config: RagBuildConfig,
+) -> Dict[str, Dict[str, Any]]:
     try:
         async with AsyncSqliteSaver.from_conn_string(static_params.sqlite_saver_path) as checkpointer:
             pipeline = build_pipeline().compile(checkpointer=checkpointer)
@@ -199,30 +224,7 @@ async def main(eval_tasks: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[s
                     or task_data.get("task")
                     or ""
                 )
-                think = task_data.get("think", False)
-
-                initial_state: PipelineState = {
-                    "task_id": task_id,
-                    "user_prompt": prompt,
-                    "retrieval_context": "",
-                    "request_plan": "",
-                    "general_info": "",
-                    "trial_num": 0,
-                    "generated_code": "",
-                    "function_name": "",
-                    "solution_run": {},
-                    "execution_output": "",
-                    "reflection_context": [],
-                    "feedback": "",
-                    "verdict": {},
-                    "trials": [],
-                    "final_code": "",
-                    "queries": [],
-                }
-
-                pipeline_params = PipelineParams(minimal=not think)
-                agent_params = AgentParams()
-                rag_build_config = RagBuildConfig()
+                initial_state = generate_default_state(task_id=task_id, user_prompt=prompt)
 
                 async with semaphore:
                     try:
@@ -262,7 +264,7 @@ async def main(eval_tasks: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[s
                             "final_code": "",
                             "trials": [],
                             "error": str(e),
-                        }
+                        } 
 
             task_results = await asyncio.gather(
                 *(_run_task(task_id, task_data) for task_id, task_data in eval_tasks.items())
@@ -271,6 +273,56 @@ async def main(eval_tasks: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[s
             return {task_id: result for task_id, result in task_results}
     finally:
         close_qdrant_client_safely()
+
+
+async def main(
+    static_params: Optional[StaticParams] = None,
+    pipeline_params: Optional[PipelineParams] = None,
+    agent_params: Optional[AgentParams] = None,
+    rag_build_config: Optional[RagBuildConfig] = None,
+    cli_params: Optional[CliParams] = None,
+    dev_mode: bool = True,
+) -> Dict[str, Dict[str, Any]]:
+    final_static_params = static_params or StaticParams()
+    final_pipeline_params = pipeline_params or PipelineParams()
+    final_agent_params = agent_params or AgentParams()
+    final_rag_build_config = rag_build_config or RagBuildConfig()
+    final_eval_tasks = None
+
+    if cli_params is not None:
+        final_pipeline_params = final_pipeline_params.model_copy(
+            update={"minimal": not cli_params.think}
+        )
+
+    if cli_params is not None:
+        warnings.warn(
+            "cli_params were provided while dev_mode=True; development mode is turned off"
+            "and CLI task input is used.",
+            stacklevel=2,
+        )
+        
+        final_eval_tasks = build_cli_eval_tasks(cli_params)
+    
+    elif dev_mode:
+        print("Setting up test infrastructure...")
+        provision_infrastructure()
+        print("Test infrastructure ready.\n")
+        
+        final_eval_tasks = load_eval_tasks(
+            evals_dir=final_static_params.evals_dir,
+            case_type=final_static_params.case_type,
+        )
+            
+    if final_eval_tasks is None:
+        raise ValueError("No evaluation tasks were provided or loaded.")
+
+    return await run(
+        eval_tasks=final_eval_tasks,
+        static_params=final_static_params,
+        pipeline_params=final_pipeline_params,
+        agent_params=final_agent_params,
+        rag_build_config=final_rag_build_config,
+    )
 
 
 if __name__ == "__main__":
