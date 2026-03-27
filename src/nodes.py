@@ -60,7 +60,9 @@ async def retrieve_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[s
         retrieval_context = get_hardcoded_context(context_used)
         return {"retrieval_context": retrieval_context, "queries": []}
 
-    user_prompt = state["user_prompt"]
+    user_prompt = state.get("user_prompt", "")
+    assert user_prompt, "Missing or empty 'user_prompt' in state before retrieval."
+    
     qt_params = config["configurable"]["agent_params"]["query_translator"]
     top_k: int = qt_params["top_k"]
     top_k_total: int = qt_params["top_k_total"]
@@ -109,6 +111,10 @@ async def retrieve_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[s
 
 
 async def plan_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    assert state.get("user_prompt"), "Missing 'user_prompt' in state before planning."
+    # Retrieval context may legitimately be empty, but the key must exist.
+    assert "retrieval_context" in state, "Missing 'retrieval_context' in state before planning."
+    
     static_params = config["configurable"]["static_params"]
     enable_planning: bool = static_params["enable_planning"]
 
@@ -139,8 +145,12 @@ async def plan_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, 
     general_info = build_general_info(state["user_prompt"], state["retrieval_context"], request_plan)
     return {"request_plan": request_plan, "general_info": general_info}
 
+    
 
 async def codegen_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    assert state.get("user_prompt"), "Missing 'user_prompt' in state before code generation."
+    assert state.get("general_info"), "Missing 'general_info' in state before code generation."
+    
     cg_params = config["configurable"]["agent_params"]["code_generator"]
     model_size: str = cg_params["model_name"]
     temperature: float = cg_params["model_temperature"]
@@ -165,9 +175,13 @@ async def codegen_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
 
 
 async def execute_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    assert state.get("task_id"), "Missing 'task_id' in state before execution."
+    # generated_code may be empty from upstream failure; run_isolated_code handles it as a failed execution.
+    assert "generated_code" in state, "Missing 'generated_code' in state before execution."
+
     # Execute the generated code using the centralized isolation utility
     result = run_isolated_code(
-        code=state["generated_code"],
+        code=str(state.get("generated_code") or ""),
         task_id=state["task_id"]
     )
     
@@ -179,6 +193,10 @@ async def execute_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
 
 
 async def reflect_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    assert state.get("general_info"), "Missing 'general_info' in state before reflection."
+    # generated_code can be empty on failed generation; reflector should still produce actionable feedback.
+    assert "generated_code" in state, "Missing 'generated_code' key in state before reflection."
+
     ref_params = config["configurable"]["agent_params"]["reflector"]
     model_size: str = ref_params["model_name"]
     temperature: float = ref_params["model_temperature"]

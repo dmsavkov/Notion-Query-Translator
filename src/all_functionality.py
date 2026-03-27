@@ -9,7 +9,7 @@ import re
 import subprocess
 import sys
 from functools import partial
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, cast
 import yaml
 
 import openai
@@ -60,6 +60,11 @@ def load_eval_tasks(
     for pattern in glob_patterns:
         for yaml_path in sorted(glob.glob(pattern)):
             stem = Path(yaml_path).stem
+            if stem in tasks:
+                raise ValueError(
+                    f"Duplicate eval task_id '{stem}' detected while loading '{yaml_path}'. "
+                    "Task IDs must be unique across selected eval suites."
+                )
             with open(yaml_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
             tasks[stem] = data if data else {}
@@ -245,6 +250,31 @@ def _check_finish_reason(model_name: str, finish_reason: str) -> None:
     if finish_reason != "stop":
         logger.warning(f"Non-stop finish_reason: {finish_reason} (response may be truncated)")
 
+
+def _extract_message_content_or_raise(response: Any, model_name: str) -> str:
+    """Validate chat completion payload and return non-empty text content."""
+    choices = getattr(response, "choices", None)
+    if not choices:
+        raise ValueError(f"LLM response has no choices for model '{model_name}'.")
+
+    first_choice = choices[0]
+    message = getattr(first_choice, "message", None)
+    if message is None:
+        raise ValueError(f"LLM response choice has no message for model '{model_name}'.")
+
+    content = getattr(message, "content", None)
+    if content is None:
+        raise ValueError(
+            f"LLM response content is None for model '{model_name}' "
+            "(possible safety block, refusal, or transport issue)."
+        )
+
+    content_text = content if isinstance(content, str) else str(content)
+    if not content_text.strip():
+        raise ValueError(f"LLM response content is empty for model '{model_name}'.")
+
+    return content_text
+
 async def async_chat_wrapper(
     messages: list[Dict[str, str]],
     max_tokens: int = 2048,
@@ -268,12 +298,15 @@ async def async_chat_wrapper(
         if 'gemini' in model_name:
             response = await _async_client.chat.completions.parse(
                 model=model_name,
-                messages=msgs,
+                messages=cast(Any, msgs),
                 temperature=temperature,
-                response_format={"type": "json_object"}
+                response_format=cast(Any, {"type": "json_object"})
             )
-            _check_finish_reason(model_name, response.choices[0].finish_reason)
-            content = response.choices[0].message.content
+            choices = getattr(response, "choices", None) or []
+            if not choices:
+                raise ValueError(f"LLM parse response has no choices for model '{model_name}'.")
+            _check_finish_reason(model_name, str(getattr(choices[0], "finish_reason", "")))
+            content = _extract_message_content_or_raise(response, model_name)
             logger.debug(f"LLM response: {content}")
             return json.loads(content)
         
@@ -282,12 +315,15 @@ async def async_chat_wrapper(
          
     response = await _async_client.chat.completions.create(
         model=model_name,
-        messages=msgs,
+        messages=cast(Any, msgs),
         temperature=temperature,
     )
-    _check_finish_reason(model_name, response.choices[0].finish_reason)
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        raise ValueError(f"LLM response has no choices for model '{model_name}'.")
+    _check_finish_reason(model_name, str(getattr(choices[0], "finish_reason", "")))
     
-    content = response.choices[0].message.content
+    content = _extract_message_content_or_raise(response, model_name)
     logger.debug(f"LLM response: {content}")
     if json_output:
         content = extract_json_from_response(content)

@@ -18,6 +18,15 @@ def run_isolated_code(code: str, task_id: str) -> ExecutionResult:
     Writes code to a task-specific file in data/solutions and executes it.
     Persists the file for debugging.
     """
+    if not str(code or "").strip():
+        return ExecutionResult(
+            exit_code=-1,
+            stdout="",
+            stderr="Code generation failed: empty code payload.",
+            passed=False,
+            error="EmptyCodeError",
+        )
+
     solutions_dir = Path("./data/solutions")
     solutions_dir.mkdir(parents=True, exist_ok=True)
     

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import warnings
 from typing import Any, Dict, List, Optional, cast
 
 from langsmith import Client 
@@ -40,6 +41,11 @@ THREAD_PREFIX_FILTERS: List[str] = []  # [] means no filtering
 client = Client()
 core_evaluator = Evaluator(default_judge_model=JUDGE_MODEL_NAME)
 eval_tasks = load_eval_tasks("evals", case_type=EVALS_CASE_TYPE)
+if not eval_tasks:
+    raise ValueError(
+        f"No evaluation tasks loaded for case_type='{EVALS_CASE_TYPE}'. "
+        "Check evals directory and case filters."
+    )
 
 def _synthesize_eval_context(
     *,
@@ -195,14 +201,26 @@ async def _load_recent_states(
 
             channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
             # Extract task_id from state (it's now part of the state)
-            state_task_id = channel_values.get("task_id", "")
+            state_task_id = str(channel_values.get("task_id") or "").strip()
             
-            if state_task_id and state_task_id not in states:
-                states[state_task_id] = {
-                    "thread_id": thread_id,
-                    "task_id": state_task_id,
-                    "pre_computed_state": channel_values,
-                }
+            if not state_task_id:
+                continue
+
+            if state_task_id in states:
+                kept_thread = str(states[state_task_id].get("thread_id") or "")
+                warnings.warn(
+                    "Duplicate checkpoint state task_id detected during evaluation run. "
+                    f"Keeping first thread_id='{kept_thread}', dropping duplicate thread_id='{thread_id}' "
+                    f"for task_id='{state_task_id}'.",
+                    stacklevel=2,
+                )
+                continue
+
+            states[state_task_id] = {
+                "thread_id": thread_id,
+                "task_id": state_task_id,
+                "pre_computed_state": channel_values,
+            }
 
     return states
 
@@ -269,11 +287,28 @@ class RagStatementsEvaluator:
         retrieval_context = ctx["retrieval_context"]
         statements = ctx["correct_statements"]
 
+        if not statements:
+            warnings.warn(
+                f"Task '{task_id}' has empty correct_statements for rag_statements_score.",
+                stacklevel=2,
+            )
+
         status_items = await self.evaluator.eval_context_statements(
             context=retrieval_context,
             statements=statements,
             judge_model_name=self.judge_model_name,
         )
+
+        if not status_items:
+            warnings.warn(
+                f"rag_statements_score evaluator returned empty output for task '{task_id}'. Scoring as 0.0.",
+                stacklevel=2,
+            )
+            return {
+                "key": "rag_statements_score",
+                "score": 0.0,
+                "comment": json.dumps({"error": "Empty evaluator output", "task_id": task_id}),
+            }
 
         score, present_count = _present_score(status_items)
 
@@ -308,11 +343,28 @@ class CodeStatementsEvaluator:
         final_code = ctx["final_code"]
         statements = ctx["correct_statements"]
 
+        if not statements:
+            warnings.warn(
+                f"Task '{task_id}' has empty correct_statements for code_statements_score.",
+                stacklevel=2,
+            )
+
         status_items = await self.evaluator.eval_context_statements(
             context=final_code,
             statements=statements,
             judge_model_name=self.judge_model_name,
         )
+
+        if not status_items:
+            warnings.warn(
+                f"code_statements_score evaluator returned empty output for task '{task_id}'. Scoring as 0.0.",
+                stacklevel=2,
+            )
+            return {
+                "key": "code_statements_score",
+                "score": 0.0,
+                "comment": json.dumps({"error": "Empty evaluator output", "task_id": task_id}),
+            }
 
         score, present_count = _present_score(status_items)
 
@@ -348,6 +400,18 @@ class CodeExecutionEvaluator:
             execution=cast(Dict[str, Any], ctx.get("solution_run") or {}),
             execution_output=str(ctx.get("execution_output") or ""),
         )
+
+        if not result:
+            warnings.warn(
+                f"code_execution_score evaluator returned empty output for task '{task_id}'. Scoring as 0.0.",
+                stacklevel=2,
+            )
+            return {
+                "key": "code_execution_score",
+                "score": 0.0,
+                "comment": json.dumps({"error": "Empty evaluator output", "task_id": task_id}),
+            }
+
         execution_pass = bool(result.get("pass", False))
 
         return {
