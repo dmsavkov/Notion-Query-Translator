@@ -41,15 +41,15 @@ def run(
     error = task_result.get("error")
     
     if error:
-        console.print(f"❌ [bold red]Error:[/bold red] {error}")
+        console.print(f"ERROR: {error}")
         raise typer.Exit(code=1)
     
     if passed:
-        console.print("[bold green]✓ PASS[/bold green]")
+        console.print("PASS")
         console.print("\n[bold cyan]Execution Output:[/bold cyan]")
         console.print(output or "(no output)")
     else:
-        console.print("[bold yellow]✗ FAIL[/bold yellow]")
+        console.print("FAIL")
         console.print("\n[bold yellow]Output:[/bold yellow]")
         console.print(output or "(no output)")
     
