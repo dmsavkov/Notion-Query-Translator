@@ -284,6 +284,9 @@ LANGSMITH_TRACING={os.environ.get("LANGSMITH_TRACING", "true")}
 LANGSMITH_ENDPOINT={os.environ.get("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com")}
 LANGSMITH_API_KEY={os.environ.get("LANGSMITH_API_KEY", "your_langsmith_api_key_here")}
 LANGSMITH_PROJECT={os.environ.get("LANGSMITH_PROJECT", "your_project_name_here")}
+
+# Poetry Configuration
+POETRY_API_KEY={os.environ.get("POETRY_API_KEY", "your_poetry_api_key_here")}
 """
     with open(env_path, "w") as f:
         f.write(env_content)
