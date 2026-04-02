@@ -22,7 +22,8 @@ def run(
     This command wraps the async pipeline entrypoint and passes
     structured CLI parameters to `main`.
     """
-    from run_pipeline import CliParams, main
+    from src.schema import CliParams
+    from run_pipeline import main
 
     try:
         cli_params = CliParams(user_prompt=user_prompt, think=think)
