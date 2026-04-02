@@ -6,7 +6,7 @@ These nodes handle retrieval, planning, code generation, execution, and reflecti
 
 import subprocess
 import sys
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, cast
 from functools import partial
 
 from langchain_core.runnables import RunnableConfig
@@ -19,6 +19,7 @@ from .all_functionality import (
     reflect_code,
 )
 from .execution_utils import run_isolated_code
+from .guards import run_general_check, run_llama_guard_check
 from .config import SearchResult
 from .hardcoded_contexts import ContextUsed, get_hardcoded_context
 from .rag_utils import (
@@ -51,6 +52,72 @@ async def _create_queries(
 
 
 # ── LangGraph Node Wrappers ───────────────────────────────────────────────────────────
+
+async def precheck_general_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    user_prompt = state["user_prompt"]
+    configurable = cast(Dict[str, Any], config.get("configurable"))
+    precheck_params = cast(Dict[str, Any], configurable["agent_params"]["precheck"])
+    if not precheck_params["enabled"]:
+        return {
+            "meta": {
+                "reasoning": "precheck disabled",
+                "relevant_to_notion_scope": True,
+                "complexity_label": "simple",
+                "request_type": "UNKNOWN",
+            }
+        }
+
+    general_params = precheck_params["general"]
+    meta = await run_general_check(
+        query=user_prompt,
+        model_name=general_params["model_name"],
+        model_temperature=general_params["model_temperature"],
+        max_tokens=general_params["max_tokens"],
+    )
+    return {"meta": meta}
+
+
+async def precheck_security_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    user_prompt = state["user_prompt"]
+    configurable = cast(Dict[str, Any], config.get("configurable"))
+    precheck_params = cast(Dict[str, Any], configurable["agent_params"]["precheck"])
+    if not precheck_params["enabled"]:
+        return {
+            "security": {
+                "is_safe": True,
+                "verdict": "safe",
+                "violations": [],
+                "raw": "precheck disabled",
+                "error": "",
+            }
+        }
+
+    security_params = precheck_params["security"]
+    security = await run_llama_guard_check(
+        query=user_prompt,
+        model_name=security_params["model_name"],
+        base_url=security_params["base_url"],
+        api_key_env=security_params["api_key_env"],
+        max_tokens=security_params["max_tokens"],
+    )
+    return {"security": security}
+
+
+async def precheck_join_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    return {}
+
+
+async def malovolent_request_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    meta = state["meta"]
+    security = state["security"]
+    feedback = (
+        "Blocked malovolent request. "
+        f"reasoning={meta['reasoning']}; "
+        f"verdict={security['verdict']}; "
+        f"violations={security['violations']}"
+    )
+    print(feedback)
+    return {"execution_output": feedback, "feedback": feedback}
 
 async def retrieve_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
     static_params = config["configurable"]["static_params"]

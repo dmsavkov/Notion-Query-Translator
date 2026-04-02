@@ -19,6 +19,7 @@ from langsmith.wrappers import wrap_openai
 from .config import (
     _MODEL_MAP,
 )
+from .openai_utils import create_async_openai_client
 from .prompts import (
     build_concision_prompt,
     build_generate_code_prompt,
@@ -237,12 +238,11 @@ def parse_statements_response(response_content: Any) -> List[Dict[str, Any]]:
 
 
 # ── Pipeline ─────────────────────────────────────────────────────────────────────────────
-
-_async_client = wrap_openai(openai.AsyncOpenAI(
-    api_key=os.getenv("GOOGLE_API_KEY"),
+_async_client = create_async_openai_client(
+    api_key=os.getenv("GOOGLE_API_KEY") or "",
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
     max_retries=25,
-))
+)
 
 def _check_finish_reason(model_name: str, finish_reason: str) -> None:
     """Check and log the finish_reason from LLM response."""
