@@ -1,8 +1,0 @@
-{
-  "n_tasks": 6,
-  "avg_query_signal_to_noise": 3.167,
-  "avg_answer_signal_to_noise": 3.333,
-  "avg_expressiveness": 3.0,
-  "avg_hallucination_strictness": 4.0,
-  "avg_total_score": 13.5
-}
