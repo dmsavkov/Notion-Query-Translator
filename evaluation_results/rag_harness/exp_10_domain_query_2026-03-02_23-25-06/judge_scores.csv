@@ -1,7 +1,0 @@
-task_id,query_signal_to_noise,answer_signal_to_noise,expressiveness,hallucination_strictness,total_score,verdict
-add_task,4,4,4,5,17.0,Pass
-add_toggle_to_page,5,4,4,4,17.0,Pass
-append_checklist_to_page_synthetic,4,5,4,5,18.0,Pass
-get_page_content_synthetic,4,5,4,5,18.0,Pass
-retrieve_tasks,4,5,4,4,17.0,Pass
-update_task_status_synthetic,2,3,2,4,11.0,Fail
