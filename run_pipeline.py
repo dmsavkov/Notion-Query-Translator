@@ -1,19 +1,14 @@
 import asyncio
-import contextlib
-import io
-import operator
 from dataclasses import asdict
 import warnings
-from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict, cast
+from typing import Any, Dict, Optional, cast
 import datetime
 
-from pydantic import BaseModel, ConfigDict
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langchain_core.runnables import RunnableConfig
 
 from build_rag import RagBuildConfig
-from src.hardcoded_contexts import ContextUsed
 from src.nodes import (
     codegen_node,
     execute_node,
@@ -25,9 +20,23 @@ from src.nodes import (
     reflect_node,
     retrieve_node,
 )
-from src.execution_utils import run_isolated_code
 from src.all_functionality import load_eval_tasks
 from src.rag_utils import close_qdrant_client_safely
+from src.routing import (
+    route_after_codegen,
+    route_after_execute,
+    route_after_precheck,
+    route_after_reflect,
+)
+from src.schema import (
+    AgentParams,
+    CliParams,
+    PipelineParams,
+    PipelineState,
+    StaticParams,
+    build_cli_eval_tasks,
+    generate_default_state,
+)
 from evals.test_dbs_script import provision_infrastructure
 
 
@@ -35,197 +44,6 @@ def generate_thread_id(prefix: Optional[str] = None) -> str:
     right_now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     unique_id = f"{prefix}_{right_now}" if prefix else right_now
     return unique_id
-
-
-class CodeGeneratorParams(BaseModel):
-    model_name: str = "gemini-3.1-flash-lite-preview"
-    model_temperature: float = 0.3
-    max_tokens: Optional[int] = None
-
-    model_config = ConfigDict(frozen=True)
-
-
-class ReflectorParams(BaseModel):
-    model_name: str = "gemma27"
-    model_temperature: float = 0.2
-    max_tokens: int = 1200
-
-    model_config = ConfigDict(frozen=True)
-
-
-class QueryTranslatorParams(BaseModel):
-    model_name: str = "gemma4"
-    model_temperature: float = 0.3
-    max_tokens: Optional[int] = None
-    n_queries: int = 3
-    top_k: int = 3
-    top_k_total: int = 5
-    query_method: Literal["multi_query", "cot_decompose", "domain_decompose"] = "cot_decompose"
-    use_summarization: bool = True
-    summarization_model_name: str = "gemma27"
-    summarization_temperature: float = 0.2
-    summarization_max_tokens: int = 200
-
-    model_config = ConfigDict(frozen=True)
-
-
-class RequestPlannerParams(BaseModel):
-    model_name: str = "gemma27"
-    model_temperature: float = 0.3
-    max_tokens: Optional[int] = None
-
-    model_config = ConfigDict(frozen=True)
-
-
-class PrecheckGeneralParams(BaseModel):
-    model_name: str = "gemma4"
-    model_temperature: float = 0.0
-    max_tokens: int = 700
-
-    model_config = ConfigDict(frozen=True)
-
-
-class PrecheckSecurityParams(BaseModel):
-    model_name: str = "meta-llama/llama-guard-4-12b"
-    base_url: str = "https://api.puter.com/puterai/openai/v1/"
-    api_key_env: str = "POETRY_API_KEY"
-    max_tokens: int = 512
-
-    model_config = ConfigDict(frozen=True)
-
-
-class PrecheckParams(BaseModel):
-    enabled: bool = True
-    general: PrecheckGeneralParams = PrecheckGeneralParams()
-    security: PrecheckSecurityParams = PrecheckSecurityParams()
-
-    model_config = ConfigDict(frozen=True)
-
-
-class AgentParams(BaseModel):
-    """Per-node model and retrieval settings."""
-    code_generator: CodeGeneratorParams = CodeGeneratorParams()
-    reflector: ReflectorParams = ReflectorParams()
-    query_translator: QueryTranslatorParams = QueryTranslatorParams()
-    request_planner: RequestPlannerParams = RequestPlannerParams()
-    precheck: PrecheckParams = PrecheckParams()
-
-    model_config = ConfigDict(frozen=True)
-
-
-class PipelineParams(BaseModel):
-    """Dynamic parameters used during pipeline execution."""
-    minimal: bool = False
-    max_trials: int = 3
-
-    model_config = ConfigDict(frozen=True)
-
-
-class CliParams(BaseModel):
-    """CLI-level parameters passed into the pipeline entrypoint."""
-    user_prompt: str
-    think: bool = False
-
-    model_config = ConfigDict(frozen=True)
-
-
-class StaticParams(BaseModel):
-    """Static parameters for pipeline initialization."""
-    evals_dir: str = "evals"
-    output_dir: str = "evaluation_results"
-    sqlite_saver_path: str = "data/checkpoints.sqlite"
-    case_type: Literal["simple", "complex", "all"] = "complex"
-    context_used: ContextUsed = "database_schema_report_comprehensive__notion_api_top25_20220628"
-    enable_planning: bool = False
-    max_concurrency: int = 6
-    
-    model_config = ConfigDict(frozen=True)
-
-
-class PipelineState(TypedDict):
-    task_id: str
-    user_prompt: str
-    meta: Dict[str, Any]
-    security: Dict[str, Any]
-    retrieval_context: str
-    request_plan: str
-    general_info: str
-    trial_num: int
-    generated_code: str
-    function_name: str
-    solution_run: Dict[str, Any]
-    execution_output: str
-    reflection_context: List[str]
-    feedback: str
-    verdict: Dict[str, Any]
-    trials: List[Dict[str, Any]]
-    final_code: str
-    queries: Annotated[List[str], operator.add]
-
-
-def build_cli_eval_tasks(cli_params: CliParams) -> Dict[str, Dict[str, Any]]:
-    return {
-        "user_request": {
-            "query": cli_params.user_prompt,
-            "think": cli_params.think,
-        }
-    }
-
-
-def generate_default_state(task_id: str, user_prompt: str) -> PipelineState:
-    return {
-        "task_id": task_id,
-        "user_prompt": user_prompt,
-        "meta": {},
-        "security": {},
-        "retrieval_context": "",
-        "request_plan": "",
-        "general_info": "",
-        "trial_num": 0,
-        "generated_code": "",
-        "function_name": "",
-        "solution_run": {},
-        "execution_output": "",
-        "reflection_context": [],
-        "feedback": "",
-        "verdict": {},
-        "trials": [],
-        "final_code": "",
-        "queries": [],
-    }
-
-
-def route_after_codegen(state: PipelineState, config: RunnableConfig) -> str:
-    # Always execute at least once so pass/fail reflects real runtime behavior.
-    return "execute"
-
-
-def route_after_precheck(state: PipelineState, config: RunnableConfig) -> str:
-    meta = state["meta"]
-    security = state["security"]
-    if meta["relevant_to_notion_scope"] and security["is_safe"]:
-        return "retrieve"
-    return "malovolent_request"
-
-
-def route_after_execute(state: PipelineState, config: RunnableConfig) -> str:
-    cfg = cast(Dict[str, Any], config.get("configurable", {}))
-    pipeline_params = cast(Dict[str, Any], cfg.get("pipeline_params", {}))
-    minimal = bool(pipeline_params.get("minimal", False))
-    if minimal:
-        return END
-    return "reflect"
-
-
-def route_after_reflect(state: PipelineState, config: RunnableConfig) -> str:
-    # Use the LLM's pass/fail verdict for routing
-    if state.get("verdict", {}).get("pass", False):
-        return END
-    
-    max_trials = config["configurable"]["pipeline_params"]["max_trials"]
-    if state.get("trial_num", 0) >= max_trials:
-        return END
-    return "codegen"
 
 
 def build_pipeline():
@@ -255,6 +73,47 @@ def build_pipeline():
     return graph
 
 
+async def execute_single_run(
+    *,
+    task_id: str,
+    task_data: Dict[str, Any],
+    static_params: StaticParams,
+    pipeline_params: PipelineParams,
+    agent_params: AgentParams,
+    rag_build_config: RagBuildConfig,
+    pipeline: Optional[Any] = None,
+    checkpointer: Optional[Any] = None,
+) -> PipelineState:
+    prompt = (
+        task_data.get("query")
+        or task_data.get("user_prompt")
+        or task_data.get("task")
+        or ""
+    )
+    initial_state = generate_default_state(task_id=task_id, user_prompt=prompt)
+
+    configurable = {
+        "thread_id": generate_thread_id(prefix=task_id),
+        "pipeline_params": pipeline_params.model_dump(),
+        "static_params": static_params.model_dump(),
+        "agent_params": agent_params.model_dump(),
+        "build_rag": asdict(rag_build_config),
+    }
+
+    runnable_pipeline = pipeline
+    if runnable_pipeline is None:
+        runnable_pipeline = build_pipeline().compile(checkpointer=checkpointer)
+
+    final_state = await runnable_pipeline.ainvoke(
+        initial_state,
+        config=RunnableConfig(
+            configurable=configurable,
+            metadata=configurable,
+        ),
+    )
+    return cast(PipelineState, final_state)
+
+
 async def run(
     eval_tasks: Dict[str, Dict[str, Any]],
     static_params: StaticParams,
@@ -268,29 +127,16 @@ async def run(
             semaphore = asyncio.Semaphore(static_params.max_concurrency)
 
             async def _run_task(task_id: str, task_data: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
-                prompt = (
-                    task_data.get("query")
-                    or task_data.get("user_prompt")
-                    or task_data.get("task")
-                    or ""
-                )
-                initial_state = generate_default_state(task_id=task_id, user_prompt=prompt)
-
                 async with semaphore:
                     try:
-                        configurable = {
-                            "thread_id": generate_thread_id(prefix=task_id),
-                            "pipeline_params": pipeline_params.model_dump(),
-                            "static_params": static_params.model_dump(),
-                            "agent_params": agent_params.model_dump(),
-                            "build_rag": asdict(rag_build_config),
-                        }
-                        final_state = await pipeline.ainvoke(
-                            initial_state,
-                            config=RunnableConfig(
-                                configurable=configurable,
-                                metadata=configurable
-                            )
+                        final_state = await execute_single_run(
+                            task_id=task_id,
+                            task_data=task_data,
+                            static_params=static_params,
+                            pipeline_params=pipeline_params,
+                            agent_params=agent_params,
+                            rag_build_config=rag_build_config,
+                            pipeline=pipeline,
                         )
                         # State is now self-contained
                         execution_output = final_state.get("execution_output", "")

@@ -8,7 +8,7 @@ from langsmith.evaluation import aevaluate
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langchain_core.runnables import RunnableConfig
 
-from run_pipeline import StaticParams
+from src.schema import StaticParams
 from src.all_functionality import load_eval_tasks
 from src.error_analysis import HumanConfig, main as run_error_analysis_main
 from src.evaluator import Evaluator
