@@ -9,7 +9,7 @@ import datetime
 
 from pydantic import BaseModel, ConfigDict
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-from langgraph.graph import END, StateGraph
+from langgraph.graph import END, START, StateGraph
 from langchain_core.runnables import RunnableConfig
 
 from build_rag import RagBuildConfig
@@ -17,6 +17,10 @@ from src.hardcoded_contexts import ContextUsed
 from src.nodes import (
     codegen_node,
     execute_node,
+    precheck_general_node,
+    precheck_join_node,
+    precheck_security_node,
+    malovolent_request_node,
     plan_node,
     reflect_node,
     retrieve_node,
@@ -36,7 +40,7 @@ def generate_thread_id(prefix: Optional[str] = None) -> str:
 class CodeGeneratorParams(BaseModel):
     model_name: str = "gemini-3.1-flash-lite-preview"
     model_temperature: float = 0.3
-    max_tokens: int = None
+    max_tokens: Optional[int] = None
 
     model_config = ConfigDict(frozen=True)
 
@@ -52,7 +56,7 @@ class ReflectorParams(BaseModel):
 class QueryTranslatorParams(BaseModel):
     model_name: str = "gemma4"
     model_temperature: float = 0.3
-    max_tokens: int = None
+    max_tokens: Optional[int] = None
     n_queries: int = 3
     top_k: int = 3
     top_k_total: int = 5
@@ -68,7 +72,32 @@ class QueryTranslatorParams(BaseModel):
 class RequestPlannerParams(BaseModel):
     model_name: str = "gemma27"
     model_temperature: float = 0.3
-    max_tokens: int = None
+    max_tokens: Optional[int] = None
+
+    model_config = ConfigDict(frozen=True)
+
+
+class PrecheckGeneralParams(BaseModel):
+    model_name: str = "gemma4"
+    model_temperature: float = 0.0
+    max_tokens: int = 700
+
+    model_config = ConfigDict(frozen=True)
+
+
+class PrecheckSecurityParams(BaseModel):
+    model_name: str = "meta-llama/llama-guard-4-12b"
+    base_url: str = "https://api.puter.com/puterai/openai/v1/"
+    api_key_env: str = "POETRY_API_KEY"
+    max_tokens: int = 512
+
+    model_config = ConfigDict(frozen=True)
+
+
+class PrecheckParams(BaseModel):
+    enabled: bool = True
+    general: PrecheckGeneralParams = PrecheckGeneralParams()
+    security: PrecheckSecurityParams = PrecheckSecurityParams()
 
     model_config = ConfigDict(frozen=True)
 
@@ -79,6 +108,7 @@ class AgentParams(BaseModel):
     reflector: ReflectorParams = ReflectorParams()
     query_translator: QueryTranslatorParams = QueryTranslatorParams()
     request_planner: RequestPlannerParams = RequestPlannerParams()
+    precheck: PrecheckParams = PrecheckParams()
 
     model_config = ConfigDict(frozen=True)
 
@@ -115,6 +145,8 @@ class StaticParams(BaseModel):
 class PipelineState(TypedDict):
     task_id: str
     user_prompt: str
+    meta: Dict[str, Any]
+    security: Dict[str, Any]
     retrieval_context: str
     request_plan: str
     general_info: str
@@ -144,6 +176,8 @@ def generate_default_state(task_id: str, user_prompt: str) -> PipelineState:
     return {
         "task_id": task_id,
         "user_prompt": user_prompt,
+        "meta": {},
+        "security": {},
         "retrieval_context": "",
         "request_plan": "",
         "general_info": "",
@@ -164,6 +198,14 @@ def generate_default_state(task_id: str, user_prompt: str) -> PipelineState:
 def route_after_codegen(state: PipelineState, config: RunnableConfig) -> str:
     # Always execute at least once so pass/fail reflects real runtime behavior.
     return "execute"
+
+
+def route_after_precheck(state: PipelineState, config: RunnableConfig) -> str:
+    meta = state["meta"]
+    security = state["security"]
+    if meta["relevant_to_notion_scope"] and security["is_safe"]:
+        return "retrieve"
+    return "malovolent_request"
 
 
 def route_after_execute(state: PipelineState, config: RunnableConfig) -> str:
@@ -189,13 +231,21 @@ def route_after_reflect(state: PipelineState, config: RunnableConfig) -> str:
 def build_pipeline():
     graph = StateGraph(PipelineState)
     # All nodes receive (state, config) parameters from LangGraph
+    graph.add_node("precheck_general", cast(Any, precheck_general_node))
+    graph.add_node("precheck_security", cast(Any, precheck_security_node))
+    graph.add_node("precheck_join", cast(Any, precheck_join_node))
+    graph.add_node("malovolent_request", cast(Any, malovolent_request_node))
     graph.add_node("retrieve", cast(Any, retrieve_node))
     graph.add_node("plan", cast(Any, plan_node))
     graph.add_node("codegen", cast(Any, codegen_node))
     graph.add_node("execute", cast(Any, execute_node))
     graph.add_node("reflect", cast(Any, reflect_node))
 
-    graph.set_entry_point("retrieve")
+    graph.add_edge(START, "precheck_general")
+    graph.add_edge(START, "precheck_security")
+    graph.add_edge(["precheck_general", "precheck_security"], "precheck_join")
+    graph.add_conditional_edges("precheck_join", route_after_precheck)
+    graph.add_edge("malovolent_request", END)
     graph.add_edge("retrieve", "plan")
     graph.add_edge("plan", "codegen")
     graph.add_conditional_edges("codegen", route_after_codegen)
