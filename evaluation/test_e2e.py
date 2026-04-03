@@ -1,62 +1,44 @@
 import asyncio
 import json
+from pathlib import Path
+import sys
 import warnings
 from typing import Any, Dict, List, Optional, cast
 from uuid import uuid4
 
+import pytest
 from langgraph.checkpoint.memory import MemorySaver
-from langsmith import Client
-from langsmith.evaluation import aevaluate
-from pydantic import BaseModel, ConfigDict, computed_field
 
-from src.all_functionality import load_eval_tasks
-from src.error_analysis import HumanConfig, main as run_error_analysis_main
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.evaluation_utils import (
+    evaluation_orchestration,
+    StandardEvaluationSettings,
+)
+from src.error_analysis import HumanConfig
 from src.evaluator import Evaluator
 from src.running_utils import execute_single_run
 from src.schema import AgentParams, PipelineParams, RagBuildConfig, StaticParams
 
-class EvaluationSettings(BaseModel):
-    experiment_prefix: str = "COMPLEX CONTEXT UPDATED: personal comprehensive + top25_20220628 + scratch, refl3."
-    evals_case_type: str = "complex"
+from pydantic import ConfigDict
+
+
+class E2EEvaluationSettings(StandardEvaluationSettings):
     judge_model_name: str = "gemini-3.1-flash-lite-preview"
-    eval_max_concurrency: int = 5
-    run_error_analysis_after_eval: bool = True
-    evals_dir: str = "evals"
 
     model_config = ConfigDict(frozen=True)
 
-    @computed_field
-    @property
-    def dataset_name(self) -> str:
-        if self.evals_case_type == "complex":
-            return "Dataset v4."
-        if self.evals_case_type == "simple":
-            return "Dataset v1."
-        if self.evals_case_type == "all":
-            return "Dataset v3."
-        raise ValueError(f"Unsupported evals_case_type: {self.evals_case_type}")
 
-    def build_client(self) -> Client:
-        return Client()
-
-    def build_core_evaluator(self) -> Evaluator:
-        return Evaluator(default_judge_model=self.judge_model_name)
-
-    def load_eval_tasks(self) -> Dict[str, Dict[str, Any]]:
-        tasks = load_eval_tasks(self.evals_dir, case_type=cast(Any, self.evals_case_type))
-        if not tasks:
-            raise ValueError(
-                f"No evaluation tasks loaded for case_type='{self.evals_case_type}'. "
-                "Check evals directory and case filters."
-            )
-        return tasks
-
-
-SETTINGS = EvaluationSettings()
-
-
-def _extract_task_prompt(task_spec: Dict[str, Any]) -> str:
-    return str(task_spec.get("query") or task_spec.get("user_prompt") or task_spec.get("task") or "").strip()
+SETTINGS = E2EEvaluationSettings(
+    experiment_prefix="COMPLEX CONTEXT UPDATED: personal comprehensive + top25_20220628 + scratch, refl3.",
+    evals_case_type="complex",
+    eval_max_concurrency=5,
+    run_error_analysis_after_eval=True,
+    evals_dir="evals",
+    provision_infrastructure=True,
+)
 
 
 def _synthesize_eval_context(
@@ -113,59 +95,6 @@ def _synthesize_eval_context(
     }
 
 
-def _build_reference_outputs(task_id: str, task_spec: Dict[str, Any]) -> Dict[str, Any]:
-    """Reference outputs attached to dataset examples (ground truth only)."""
-    task = _extract_task_prompt(task_spec)
-    return {
-        "task_id": task_id,
-        "task": task,
-        "solution": task_spec.get("solution", ""),
-        "correct_statements": task_spec.get("correct_statements", []) or [],
-    }
-
-
-def _ensure_dataset(client: Client, dataset_name: str, task_specs: Dict[str, Dict[str, Any]]) -> Any:
-    """
-    Ensure a single stable dataset exists and contains one example per eval task.
-    Existing examples are reused; missing ones are created.
-    """
-    dataset = None
-    for ds in client.list_datasets(dataset_name=dataset_name):
-        if ds.name == dataset_name:
-            dataset = ds
-            break
-
-    if dataset is None:
-        dataset = client.create_dataset(dataset_name=dataset_name)
-        print(f"Created dataset: {dataset_name}")
-    else:
-        print(f"Using existing dataset: {dataset_name}")
-
-    existing_by_task_id: Dict[str, Any] = {}
-    for ex in client.list_examples(dataset_id=dataset.id):
-        ex_inputs = getattr(ex, "inputs", {}) or {}
-        task_id = str(ex_inputs.get("task_id") or "").strip()
-        if task_id:
-            existing_by_task_id[task_id] = ex
-
-    created = 0
-    for task_id, task_spec in sorted(task_specs.items()):
-        if task_id in existing_by_task_id:
-            continue
-        client.create_example(
-            inputs={
-                "task_id": task_id,
-                "query": _extract_task_prompt(task_spec),
-            },
-            outputs=_build_reference_outputs(task_id, task_spec),
-            dataset_id=dataset.id,
-        )
-        created += 1
-
-    print(f"Dataset '{dataset_name}' ready. Existing: {len(existing_by_task_id)} | Created now: {created}")
-    return dataset
-
-
 def _error_target_output(task_id: str, thread_id: str, error: str) -> Dict[str, Any]:
     return {
         "task_id": task_id,
@@ -183,7 +112,6 @@ def make_live_eval_target(
     static_params: StaticParams,
     pipeline_params: PipelineParams,
     *,
-    task_specs: Dict[str, Dict[str, Any]],
     agent_params: Optional[AgentParams] = None,
     rag_build_config: Optional[RagBuildConfig] = None,
 ):
@@ -202,8 +130,6 @@ def make_live_eval_target(
             return _error_target_output(task_id="", thread_id="", error="Missing task_id in dataset inputs.")
 
         task_query = str(inputs.get("query") or inputs.get("user_prompt") or inputs.get("task") or "").strip()
-        if not task_query:
-            task_query = _extract_task_prompt(task_specs.get(task_id, {}))
 
         thread_id = f"{task_id}_{uuid4().hex}"
         if not task_query:
@@ -417,7 +343,7 @@ class CodeExecutionEvaluator:
         return await self._compute(inputs=inputs, outputs=outputs, reference_outputs=reference_outputs)
 
 
-def _build_evaluators(core_evaluator: Evaluator, settings: EvaluationSettings) -> List[Any]:
+def _build_evaluators(core_evaluator: Evaluator, settings: E2EEvaluationSettings) -> List[Any]:
     rag_eval = RagStatementsEvaluator(core_evaluator, judge_model_name=settings.judge_model_name)
     code_statements_eval = CodeStatementsEvaluator(core_evaluator, judge_model_name=settings.judge_model_name)
     code_execution_eval = CodeExecutionEvaluator(core_evaluator)
@@ -428,56 +354,39 @@ def _build_evaluators(core_evaluator: Evaluator, settings: EvaluationSettings) -
     ]
 
 
-async def main(settings: Optional[EvaluationSettings] = None) -> None:
+async def run_e2e_evaluation(settings: Optional[E2EEvaluationSettings] = None) -> Dict[str, Any]:
     final_settings = settings or SETTINGS
     static_params = StaticParams(case_type=cast(Any, final_settings.evals_case_type))
     pipeline_params = PipelineParams(minimal=False)
     agent_params = AgentParams()
     rag_build_config = RagBuildConfig()
-    client = final_settings.build_client()
-    core_evaluator = final_settings.build_core_evaluator()
-    eval_tasks = final_settings.load_eval_tasks()
-
-    _ensure_dataset(client, final_settings.dataset_name, eval_tasks)
-    proviision_infrastructure()
+    core_evaluator = Evaluator(default_judge_model=final_settings.judge_model_name)
 
     target = make_live_eval_target(
         static_params,
         pipeline_params,
-        task_specs=eval_tasks,
         agent_params=agent_params,
         rag_build_config=rag_build_config,
     )
 
     evaluators: List[Any] = _build_evaluators(core_evaluator, final_settings)
 
-    results = await aevaluate(
-        target,
-        data=final_settings.dataset_name,
+    return await evaluation_orchestration(
+        settings=final_settings,
+        target=target,
         evaluators=cast(Any, evaluators),
-        experiment_prefix=final_settings.experiment_prefix,
-        max_concurrency=final_settings.eval_max_concurrency,
+        human_config=HumanConfig(),
     )
 
-    print(results)
 
-    if final_settings.run_error_analysis_after_eval:
-        try:
-            error_analysis_result = await asyncio.to_thread(
-                run_error_analysis_main,
-                final_settings.experiment_prefix,
-                HumanConfig(),
-                final_settings.dataset_name,
-            )
-            print(
-                "Error analysis complete: "
-                f"page_title={error_analysis_result.get('page_title', '')}, "
-                f"page_id={error_analysis_result.get('page_id', '')}, "
-                f"record_count={error_analysis_result.get('record_count', 0)}"
-            )
-            print("Second-prompt payload copied to clipboard.")
-        except Exception as exc:
-            print(f"Post-eval error analysis failed: {exc}")
+@pytest.mark.asyncio
+@pytest.mark.evaluation
+async def test_e2e_live_evaluation() -> None:
+    await run_e2e_evaluation()
+
+
+async def main() -> None:
+    await run_e2e_evaluation()
 
 
 if __name__ == "__main__":

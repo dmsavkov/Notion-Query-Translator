@@ -40,6 +40,7 @@ def pytest_configure(config):
     """Register custom marks."""
     config.addinivalue_line("markers", "unit: fast, deterministic logic tests")
     config.addinivalue_line("markers", "orchestration: tests for graph trajectories and logic")
+    config.addinivalue_line("markers", "evaluation: tests that run LangSmith evaluation orchestration")
     config.addinivalue_line("markers", "smoke: basic connectivity and environment checks")
     config.addinivalue_line("markers", "llm: tests that perform real LLM calls (use with VCR)")
     config.addinivalue_line("markers", "asyncio: mark test as async (via pytest-asyncio)")
