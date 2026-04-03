@@ -9,7 +9,7 @@ from langsmith import Client
 from langsmith.evaluation import aevaluate
 from pydantic import BaseModel, ConfigDict, computed_field
 
-from run_pipeline import execute_single_run
+from src.running_utils import execute_single_run
 from src.all_functionality import load_eval_tasks
 from src.error_analysis import HumanConfig, main as run_error_analysis_main
 from src.evaluator import Evaluator
