@@ -1,22 +1,9 @@
 import asyncio
 import warnings
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, Optional
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-from langgraph.graph import END, START, StateGraph
-from langchain_core.runnables import RunnableConfig
 
-from src.nodes import (
-    codegen_node,
-    execute_node,
-    precheck_general_node,
-    precheck_join_node,
-    precheck_security_node,
-    malovolent_request_node,
-    plan_node,
-    reflect_node,
-    retrieve_node,
-)
 from src.all_functionality import load_eval_tasks
 from src.routing import (
     route_after_codegen,
@@ -24,7 +11,7 @@ from src.routing import (
     route_after_precheck,
     route_after_reflect,
 )
-from src.running_utils import execute_single_run, generate_thread_id
+from src.running_utils import build_pipeline, execute_single_run, generate_thread_id
 from src.schema import (
     AgentParams,
     CliParams,
@@ -35,32 +22,6 @@ from src.schema import (
     build_cli_eval_tasks,
 )
 from evals.test_dbs_script import provision_infrastructure
-
-def build_pipeline():
-    graph = StateGraph(PipelineState)
-    # All nodes receive (state, config) parameters from LangGraph
-    graph.add_node("precheck_general", cast(Any, precheck_general_node))
-    graph.add_node("precheck_security", cast(Any, precheck_security_node))
-    graph.add_node("precheck_join", cast(Any, precheck_join_node))
-    graph.add_node("malovolent_request", cast(Any, malovolent_request_node))
-    graph.add_node("retrieve", cast(Any, retrieve_node))
-    graph.add_node("plan", cast(Any, plan_node))
-    graph.add_node("codegen", cast(Any, codegen_node))
-    graph.add_node("execute", cast(Any, execute_node))
-    graph.add_node("reflect", cast(Any, reflect_node))
-
-    graph.add_edge(START, "precheck_general")
-    graph.add_edge(START, "precheck_security")
-    graph.add_edge(["precheck_general", "precheck_security"], "precheck_join")
-    graph.add_conditional_edges("precheck_join", route_after_precheck)
-    graph.add_edge("malovolent_request", END)
-    graph.add_edge("retrieve", "plan")
-    graph.add_edge("plan", "codegen")
-    graph.add_conditional_edges("codegen", route_after_codegen)
-    graph.add_conditional_edges("execute", route_after_execute)
-    graph.add_conditional_edges("reflect", route_after_reflect)
-
-    return graph
 
 
 async def run(
