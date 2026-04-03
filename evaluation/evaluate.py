@@ -2,50 +2,62 @@ import asyncio
 import json
 import warnings
 from typing import Any, Dict, List, Optional, cast
+from uuid import uuid4
 
-from langsmith import Client 
+from langgraph.checkpoint.memory import MemorySaver
+from langsmith import Client
 from langsmith.evaluation import aevaluate
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-from langchain_core.runnables import RunnableConfig
+from pydantic import BaseModel, ConfigDict, computed_field
 
-from src.schema import StaticParams
+from run_pipeline import execute_single_run
 from src.all_functionality import load_eval_tasks
 from src.error_analysis import HumanConfig, main as run_error_analysis_main
 from src.evaluator import Evaluator
+from src.schema import AgentParams, PipelineParams, RagBuildConfig, StaticParams
 
-# Global setup
-EXPERIMENT_PREFIX = "COMPLEX CONTEXT UPDATED: personal comprehensive + top25_20220628 + scratch, refl3."  # for grouping runs in LangSmith
-EVALS_CASE_TYPE = "complex"
-JUDGE_MODEL_NAME = "gemini-3.1-flash-lite-preview"
-EVAL_MAX_CONCURRENCY = 5
-RUN_ERROR_ANALYSIS_AFTER_EVAL = True
+class EvaluationSettings(BaseModel):
+    experiment_prefix: str = "COMPLEX CONTEXT UPDATED: personal comprehensive + top25_20220628 + scratch, refl3."
+    evals_case_type: str = "complex"
+    judge_model_name: str = "gemini-3.1-flash-lite-preview"
+    eval_max_concurrency: int = 5
+    run_error_analysis_after_eval: bool = True
+    evals_dir: str = "evals"
 
-DATASET_NAME = ""
-N_LAST_RUNS = 0
+    model_config = ConfigDict(frozen=True)
 
-if EVALS_CASE_TYPE == "complex":
-    DATASET_NAME = "Dataset v4." # updated
-    N_LAST_RUNS = 5
-elif EVALS_CASE_TYPE == "simple": 
-    DATASET_NAME = "Dataset v1."
-    N_LAST_RUNS = 6
-elif EVALS_CASE_TYPE == "all":
-    DATASET_NAME = "Dataset v3."
-    N_LAST_RUNS = 11
-else:
-    raise ValueError(f"Unsupported EVALS_CASE_TYPE: {EVALS_CASE_TYPE}")
-    
-THREAD_PREFIX_FILTERS: List[str] = []  # [] means no filtering
+    @computed_field
+    @property
+    def dataset_name(self) -> str:
+        if self.evals_case_type == "complex":
+            return "Dataset v4."
+        if self.evals_case_type == "simple":
+            return "Dataset v1."
+        if self.evals_case_type == "all":
+            return "Dataset v3."
+        raise ValueError(f"Unsupported evals_case_type: {self.evals_case_type}")
+
+    def build_client(self) -> Client:
+        return Client()
+
+    def build_core_evaluator(self) -> Evaluator:
+        return Evaluator(default_judge_model=self.judge_model_name)
+
+    def load_eval_tasks(self) -> Dict[str, Dict[str, Any]]:
+        tasks = load_eval_tasks(self.evals_dir, case_type=cast(Any, self.evals_case_type))
+        if not tasks:
+            raise ValueError(
+                f"No evaluation tasks loaded for case_type='{self.evals_case_type}'. "
+                "Check evals directory and case filters."
+            )
+        return tasks
 
 
-client = Client()
-core_evaluator = Evaluator(default_judge_model=JUDGE_MODEL_NAME)
-eval_tasks = load_eval_tasks("evals", case_type=EVALS_CASE_TYPE)
-if not eval_tasks:
-    raise ValueError(
-        f"No evaluation tasks loaded for case_type='{EVALS_CASE_TYPE}'. "
-        "Check evals directory and case filters."
-    )
+SETTINGS = EvaluationSettings()
+
+
+def _extract_task_prompt(task_spec: Dict[str, Any]) -> str:
+    return str(task_spec.get("query") or task_spec.get("user_prompt") or task_spec.get("task") or "").strip()
+
 
 def _synthesize_eval_context(
     *,
@@ -56,31 +68,33 @@ def _synthesize_eval_context(
     """
     Synthesize all evaluation context from LangSmith parameters into a single dict.
     All values come from reference_outputs (ground truth) or outputs (predictions).
-    
+
     Returns:
         {
             "task_id": str,
-            "task": str (the task description),
+            "task": str,
             "solution": str,
             "retrieval_context": str,
             "final_code": str,
+            "solution_run": Dict[str, Any],
+            "execution_output": str,
             "correct_statements": List[str],
         }
     """
-    # task_id priority: target output > reference > inputs
     task_id = (
         str(outputs.get("task_id") or "").strip()
         or str(reference_outputs.get("task_id") or "").strip()
         or str(inputs.get("task_id") or "").strip()
     )
-    
-    state = outputs.get("pre_computed_state", {}) or {}
-    retrieval_context = state.get("retrieval_context", "")
-    final_code = state.get("final_code") or state.get("generated_code") or ""
-    execution_output = state.get("execution_output", "")
-    solution_run = state.get("solution_run") or outputs.get("execution") or {}
 
-    # Extract all ground truth from reference_outputs
+    retrieval_context = str(outputs.get("retrieval_context") or "")
+    final_code = str(outputs.get("final_code") or outputs.get("generated_code") or "")
+    execution_output = str(outputs.get("execution_output") or "")
+
+    solution_run = outputs.get("execution") or {}
+    if not isinstance(solution_run, dict):
+        solution_run = {}
+
     task = reference_outputs.get("task", "")
     solution = reference_outputs.get("solution", "")
     statements = reference_outputs.get("correct_statements") or []
@@ -101,7 +115,7 @@ def _synthesize_eval_context(
 
 def _build_reference_outputs(task_id: str, task_spec: Dict[str, Any]) -> Dict[str, Any]:
     """Reference outputs attached to dataset examples (ground truth only)."""
-    task = task_spec.get("query") or task_spec.get("user_prompt") or task_spec.get("task") or ""
+    task = _extract_task_prompt(task_spec)
     return {
         "task_id": task_id,
         "task": task,
@@ -110,7 +124,7 @@ def _build_reference_outputs(task_id: str, task_spec: Dict[str, Any]) -> Dict[st
     }
 
 
-def _ensure_dataset(dataset_name: str, task_specs: Dict[str, Dict[str, Any]]) -> Any:
+def _ensure_dataset(client: Client, dataset_name: str, task_specs: Dict[str, Dict[str, Any]]) -> Any:
     """
     Ensure a single stable dataset exists and contains one example per eval task.
     Existing examples are reused; missing ones are created.
@@ -141,6 +155,7 @@ def _ensure_dataset(dataset_name: str, task_specs: Dict[str, Dict[str, Any]]) ->
         client.create_example(
             inputs={
                 "task_id": task_id,
+                "query": _extract_task_prompt(task_spec),
             },
             outputs=_build_reference_outputs(task_id, task_spec),
             dataset_id=dataset.id,
@@ -151,108 +166,84 @@ def _ensure_dataset(dataset_name: str, task_specs: Dict[str, Dict[str, Any]]) ->
     return dataset
 
 
-async def _load_recent_states(
-    sqlite_saver_path: str,
-    n_last_runs: int,
-    thread_prefix_filters: Optional[List[str]] = None,
-) -> Dict[str, Dict[str, Any]]:
+def _error_target_output(task_id: str, thread_id: str, error: str) -> Dict[str, Any]:
+    return {
+        "task_id": task_id,
+        "thread_id": thread_id,
+        "retrieval_context": "",
+        "final_code": "",
+        "execution": {},
+        "execution_output": "",
+        "function_name": "",
+        "error": error,
+    }
+
+
+def make_live_eval_target(
+    static_params: StaticParams,
+    pipeline_params: PipelineParams,
+    *,
+    task_specs: Dict[str, Dict[str, Any]],
+    agent_params: Optional[AgentParams] = None,
+    rag_build_config: Optional[RagBuildConfig] = None,
+):
     """
-    Load the latest N unique thread states from checkpoint history.
-    Returns dict mapping task_id -> state for direct lookup.
+    Build a LangSmith target that executes one live pipeline run per dataset sample.
+
+    The target uses a fresh in-memory checkpointer per invocation and returns
+    only evaluator-required output fields.
     """
-    states: Dict[str, Dict[str, Any]] = {}
-    if n_last_runs <= 0:
-        return states
+    final_agent_params = agent_params or AgentParams()
+    final_rag_build_config = rag_build_config or RagBuildConfig()
 
-    filters = thread_prefix_filters or []
-
-    async with AsyncSqliteSaver.from_conn_string(sqlite_saver_path) as checkpointer:
-        thread_ids: List[str] = []
-        seen_thread_ids = set()
-
-        checkpoint_iter = checkpointer.alist(None)
-        try:
-            async for checkpoint in checkpoint_iter:
-                thread_id = checkpoint.config.get("configurable", {}).get("thread_id")
-                if not thread_id or thread_id in seen_thread_ids:
-                    continue
-
-                if filters and not any(thread_id.startswith(prefix + "_") for prefix in filters):
-                    continue
-
-                seen_thread_ids.add(thread_id)
-                thread_ids.append(thread_id)
-
-                if len(thread_ids) >= n_last_runs:
-                    break
-        finally:
-            # Explicitly close iterator when stopping early to avoid noisy GeneratorExit warnings.
-            aclose = cast(Any, getattr(checkpoint_iter, "aclose", None))
-            if callable(aclose):
-                maybe_awaitable = aclose()
-                if hasattr(maybe_awaitable, "__await__"):
-                    await cast(Any, maybe_awaitable)
-
-        for thread_id in thread_ids:
-            config = cast(RunnableConfig, {"configurable": {"thread_id": thread_id}})
-            checkpoint_tuple = await checkpointer.aget_tuple(config)
-            if not checkpoint_tuple:
-                continue
-
-            channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
-            # Extract task_id from state (it's now part of the state)
-            state_task_id = str(channel_values.get("task_id") or "").strip()
-            
-            if not state_task_id:
-                continue
-
-            if state_task_id in states:
-                kept_thread = str(states[state_task_id].get("thread_id") or "")
-                warnings.warn(
-                    "Duplicate checkpoint state task_id detected during evaluation run. "
-                    f"Keeping first thread_id='{kept_thread}', dropping duplicate thread_id='{thread_id}' "
-                    f"for task_id='{state_task_id}'.",
-                    stacklevel=2,
-                )
-                continue
-
-            states[state_task_id] = {
-                "thread_id": thread_id,
-                "task_id": state_task_id,
-                "pre_computed_state": channel_values,
-            }
-
-    return states
-
-
-def _select_state_for_task(states: Dict[str, Dict[str, Any]], task_id: str) -> Optional[Dict[str, Any]]:
-    """
-    Direct lookup of state by task_id. Returns None if not found.
-    """
-    return states.get(task_id)
-
-
-def make_precomputed_target(states: Dict[str, Dict[str, Any]]):
-    """
-    Build a target that maps dataset task_id to previously checkpointed states.
-    """
-
-    def target(inputs: Dict[str, Any]) -> Dict[str, Any]:
+    async def target(inputs: Dict[str, Any]) -> Dict[str, Any]:
         task_id = str(inputs.get("task_id") or "").strip()
-        selected_state = _select_state_for_task(states, task_id)
+        if not task_id:
+            return _error_target_output(task_id="", thread_id="", error="Missing task_id in dataset inputs.")
 
-        if selected_state is None:
-            return {
-                "task_id": task_id,
-                "thread_id": "",
-                "pre_computed_state": {},
-                "error": f"No matching checkpoint state found for task_id={task_id}",
-            }
+        task_query = str(inputs.get("query") or inputs.get("user_prompt") or inputs.get("task") or "").strip()
+        if not task_query:
+            task_query = _extract_task_prompt(task_specs.get(task_id, {}))
+
+        thread_id = f"{task_id}_{uuid4().hex}"
+        if not task_query:
+            return _error_target_output(
+                task_id=task_id,
+                thread_id=thread_id,
+                error=f"No prompt found for task_id='{task_id}' in dataset inputs or task specs.",
+            )
+
+        try:
+            final_state = await execute_single_run(
+                task_id=task_id,
+                task_data={"query": task_query},
+                static_params=static_params,
+                pipeline_params=pipeline_params,
+                agent_params=final_agent_params,
+                rag_build_config=final_rag_build_config,
+                thread_id=thread_id,
+                checkpointer=MemorySaver(),
+            )
+        except Exception as exc:
+            warnings.warn(
+                f"Live target execution failed for task_id='{task_id}': {exc}",
+                stacklevel=2,
+            )
+            return _error_target_output(task_id=task_id, thread_id=thread_id, error=str(exc))
+
+        execution = final_state.get("solution_run") or {}
+        if not isinstance(execution, dict):
+            execution = {}
 
         return {
             "task_id": task_id,
-            "thread_id": selected_state.get("thread_id", ""),
-            "pre_computed_state": selected_state.get("pre_computed_state", {}),
+            "thread_id": thread_id,
+            "retrieval_context": str(final_state.get("retrieval_context") or ""),
+            "final_code": str(final_state.get("final_code") or final_state.get("generated_code") or ""),
+            "execution": execution,
+            "execution_output": str(final_state.get("execution_output") or ""),
+            "function_name": str(final_state.get("function_name") or ""),
+            "error": "",
         }
 
     return target
@@ -310,7 +301,7 @@ class RagStatementsEvaluator:
                 "comment": json.dumps({"error": "Empty evaluator output", "task_id": task_id}),
             }
 
-        score, present_count = _present_score(status_items)
+        score, _ = _present_score(status_items)
 
         return {
             "key": "rag_statements_score",
@@ -366,7 +357,7 @@ class CodeStatementsEvaluator:
                 "comment": json.dumps({"error": "Empty evaluator output", "task_id": task_id}),
             }
 
-        score, present_count = _present_score(status_items)
+        score, _ = _present_score(status_items)
 
         return {
             "key": "code_statements_score",
@@ -426,79 +417,56 @@ class CodeExecutionEvaluator:
         return await self._compute(inputs=inputs, outputs=outputs, reference_outputs=reference_outputs)
 
 
-rag_eval = RagStatementsEvaluator(core_evaluator, judge_model_name=JUDGE_MODEL_NAME)
-code_statements_eval = CodeStatementsEvaluator(core_evaluator, judge_model_name=JUDGE_MODEL_NAME)
-code_execution_eval = CodeExecutionEvaluator(core_evaluator)
-
-async def _debug_one_state(states_to_evaluate: Dict[str, Dict[str, Any]]) -> None:
-    if len(states_to_evaluate) < 1:
-        print("No checkpoint states available")
-        return
-
-    # Pick first state in dict
-    first_task_id = next(iter(states_to_evaluate))
-    st = states_to_evaluate[first_task_id]
-    res = await core_evaluator.eval_context_statements(
-        context=st["pre_computed_state"].get("final_code", ""),
-        statements=eval_tasks.get(first_task_id, {}).get("correct_statements", []),
-    )
-    print(f"Debug eval for task={first_task_id}:")
-    print(res)
-
-
-# asyncio.run(_debug_one_state(states_to_evaluate))
-
-async def main():
-    static_params = StaticParams()
-
-    _ensure_dataset(DATASET_NAME, eval_tasks)
-
-    states_to_evaluate = await _load_recent_states(
-        sqlite_saver_path=static_params.sqlite_saver_path,
-        n_last_runs=N_LAST_RUNS,
-        thread_prefix_filters=THREAD_PREFIX_FILTERS,
-    )
-
-    print(f"Loaded checkpoint states: {len(states_to_evaluate)}/{N_LAST_RUNS} unique tasks")
-    for task_id, state in sorted(states_to_evaluate.items()):
-        print(f"  {task_id}: thread={state.get('thread_id', '')}")
-
-    print("\nDataset -> Checkpoint mapping:")
-    for task_id in sorted(eval_tasks.keys()):
-        selected_state = _select_state_for_task(states_to_evaluate, task_id)
-        selected_thread = selected_state.get("thread_id", "") if selected_state else "<not found>"
-        status = "✓" if selected_state else "✗"
-        print(f"  {status} task={task_id} -> thread={selected_thread}")
-
-    target = make_precomputed_target(states_to_evaluate)
-
-    async def async_target_wrapper(inputs: Dict[str, Any]) -> Dict[str, Any]:
-        # Run synchronous target in a worker thread so aevaluate can await it.
-        return await asyncio.to_thread(target, inputs)
-
-    evaluators: List[Any] = [
+def _build_evaluators(core_evaluator: Evaluator, settings: EvaluationSettings) -> List[Any]:
+    rag_eval = RagStatementsEvaluator(core_evaluator, judge_model_name=settings.judge_model_name)
+    code_statements_eval = CodeStatementsEvaluator(core_evaluator, judge_model_name=settings.judge_model_name)
+    code_execution_eval = CodeExecutionEvaluator(core_evaluator)
+    return [
         rag_eval.__call__,
         code_statements_eval.__call__,
         code_execution_eval.__call__,
     ]
 
+
+async def main(settings: Optional[EvaluationSettings] = None) -> None:
+    final_settings = settings or SETTINGS
+    static_params = StaticParams(case_type=cast(Any, final_settings.evals_case_type))
+    pipeline_params = PipelineParams(minimal=False)
+    agent_params = AgentParams()
+    rag_build_config = RagBuildConfig()
+    client = final_settings.build_client()
+    core_evaluator = final_settings.build_core_evaluator()
+    eval_tasks = final_settings.load_eval_tasks()
+
+    _ensure_dataset(client, final_settings.dataset_name, eval_tasks)
+
+    target = make_live_eval_target(
+        static_params,
+        pipeline_params,
+        task_specs=eval_tasks,
+        agent_params=agent_params,
+        rag_build_config=rag_build_config,
+    )
+
+    evaluators: List[Any] = _build_evaluators(core_evaluator, final_settings)
+
     results = await aevaluate(
-        async_target_wrapper,
-        data=DATASET_NAME,
+        target,
+        data=final_settings.dataset_name,
         evaluators=cast(Any, evaluators),
-        experiment_prefix=EXPERIMENT_PREFIX,
-        max_concurrency=EVAL_MAX_CONCURRENCY,
+        experiment_prefix=final_settings.experiment_prefix,
+        max_concurrency=final_settings.eval_max_concurrency,
     )
 
     print(results)
 
-    if RUN_ERROR_ANALYSIS_AFTER_EVAL:
+    if final_settings.run_error_analysis_after_eval:
         try:
             error_analysis_result = await asyncio.to_thread(
                 run_error_analysis_main,
-                EXPERIMENT_PREFIX,
+                final_settings.experiment_prefix,
                 HumanConfig(),
-                DATASET_NAME,
+                final_settings.dataset_name,
             )
             print(
                 "Error analysis complete: "
@@ -507,8 +475,9 @@ async def main():
                 f"record_count={error_analysis_result.get('record_count', 0)}"
             )
             print("Second-prompt payload copied to clipboard.")
-        except Exception as e:
-            print(f"Post-eval error analysis failed: {e}")
+        except Exception as exc:
+            print(f"Post-eval error analysis failed: {exc}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

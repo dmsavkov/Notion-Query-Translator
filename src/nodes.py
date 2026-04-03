@@ -20,21 +20,14 @@ from .all_functionality import (
 )
 from .execution_utils import run_isolated_code
 from .guards import run_general_check, run_llama_guard_check
-from .config import SearchResult
-from .hardcoded_contexts import ContextUsed, get_hardcoded_context
-from .rag_utils import (
-    QueryEngineer,
-    query_qdrant,
-    search_multiple_queries,
-    summarize_retrieval_results,
-)
+from .hardcoded_contexts import get_hardcoded_context
 
 
 # ── Query Helper Functions ────────────────────────────────────────────────────────────
 
 async def _create_queries(
     query_method: Literal["multi_query", "cot_decompose", "domain_decompose"],
-    engineer: QueryEngineer,
+    engineer: Any,
     query: str,
 ) -> List[str]:
     """Build a list of queries based on the selected query method."""
@@ -55,9 +48,10 @@ async def _create_queries(
 
 async def precheck_general_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
     user_prompt = state["user_prompt"]
-    configurable = cast(Dict[str, Any], config.get("configurable"))
-    precheck_params = cast(Dict[str, Any], configurable["agent_params"]["precheck"])
-    if not precheck_params["enabled"]:
+    configurable = cast(Dict[str, Any], config.get("configurable", {}))
+    agent_params = cast(Dict[str, Any], configurable.get("agent_params", {}))
+    precheck_params = cast(Dict[str, Any], agent_params.get("precheck", {}))
+    if not bool(precheck_params.get("enabled", True)):
         return {
             "meta": {
                 "reasoning": "precheck disabled",
@@ -67,21 +61,22 @@ async def precheck_general_node(state: Dict[str, Any], config: RunnableConfig) -
             }
         }
 
-    general_params = precheck_params["general"]
+    general_params = cast(Dict[str, Any], precheck_params.get("general", {}))
     meta = await run_general_check(
         query=user_prompt,
-        model_name=general_params["model_name"],
-        model_temperature=general_params["model_temperature"],
-        max_tokens=general_params["max_tokens"],
+        model_name=str(general_params.get("model_name", "gemma4")),
+        model_temperature=float(general_params.get("model_temperature", 0.0)),
+        max_tokens=int(general_params.get("max_tokens", 700)),
     )
     return {"meta": meta}
 
 
 async def precheck_security_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
     user_prompt = state["user_prompt"]
-    configurable = cast(Dict[str, Any], config.get("configurable"))
-    precheck_params = cast(Dict[str, Any], configurable["agent_params"]["precheck"])
-    if not precheck_params["enabled"]:
+    configurable = cast(Dict[str, Any], config.get("configurable", {}))
+    agent_params = cast(Dict[str, Any], configurable.get("agent_params", {}))
+    precheck_params = cast(Dict[str, Any], agent_params.get("precheck", {}))
+    if not bool(precheck_params.get("enabled", True)):
         return {
             "security": {
                 "is_safe": True,
@@ -92,13 +87,13 @@ async def precheck_security_node(state: Dict[str, Any], config: RunnableConfig) 
             }
         }
 
-    security_params = precheck_params["security"]
+    security_params = cast(Dict[str, Any], precheck_params.get("security", {}))
     security = await run_llama_guard_check(
         query=user_prompt,
-        model_name=security_params["model_name"],
-        base_url=security_params["base_url"],
-        api_key_env=security_params["api_key_env"],
-        max_tokens=security_params["max_tokens"],
+        model_name=str(security_params.get("model_name", "meta-llama/llama-guard-4-12b")),
+        base_url=str(security_params.get("base_url", "https://api.puter.com/puterai/openai/v1/")),
+        api_key_env=str(security_params.get("api_key_env", "POETRY_API_KEY")),
+        max_tokens=int(security_params.get("max_tokens", 512)),
     )
     return {"security": security}
 
@@ -120,8 +115,9 @@ async def malovolent_request_node(state: Dict[str, Any], config: RunnableConfig)
     return {"execution_output": feedback, "feedback": feedback}
 
 async def retrieve_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
-    static_params = config["configurable"]["static_params"]
-    context_used: ContextUsed = static_params["context_used"]
+    configurable = cast(Dict[str, Any], config.get("configurable", {}))
+    static_params = cast(Dict[str, Any], configurable.get("static_params", {}))
+    context_used = str(static_params.get("context_used", "dynamic"))
 
     if context_used != "dynamic":
         retrieval_context = get_hardcoded_context(context_used)
@@ -130,15 +126,28 @@ async def retrieve_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[s
     user_prompt = state.get("user_prompt", "")
     assert user_prompt, "Missing or empty 'user_prompt' in state before retrieval."
     
-    qt_params = config["configurable"]["agent_params"]["query_translator"]
+    agent_params = cast(Dict[str, Any], configurable.get("agent_params", {}))
+    qt_params = cast(Dict[str, Any], agent_params.get("query_translator", {}))
     top_k: int = qt_params["top_k"]
     top_k_total: int = qt_params["top_k_total"]
     use_summarization: bool = qt_params["use_summarization"]
-    query_method: str = qt_params["query_method"]
+    query_method_raw = str(qt_params["query_method"])
     model_name: str = qt_params["model_name"]
     model_temperature: float = qt_params["model_temperature"]
     max_tokens: int = qt_params["max_tokens"]
     n_queries: int = qt_params["n_queries"]
+
+    if query_method_raw not in {"multi_query", "cot_decompose", "domain_decompose"}:
+        query_method_raw = "cot_decompose"
+    query_method = cast(Literal["multi_query", "cot_decompose", "domain_decompose"], query_method_raw)
+
+    # Lazy import keeps static-context runs and unit tests independent from qdrant import-time issues.
+    from .rag_utils import (
+        QueryEngineer,
+        query_qdrant,
+        search_multiple_queries,
+        summarize_retrieval_results,
+    )
 
     query_chat_fn = partial(
         async_chat_wrapper,
@@ -149,7 +158,7 @@ async def retrieve_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[s
     engineer = QueryEngineer(chat_fn=query_chat_fn, n_queries=n_queries)
     queries = await _create_queries(query_method, engineer, user_prompt)
 
-    async def _search(query: str) -> List[SearchResult]:
+    async def _search(query: str) -> List[Any]:
         return await query_qdrant(
             query=query,
             collection_name="notion_docs_leaf",
@@ -182,7 +191,8 @@ async def plan_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, 
     # Retrieval context may legitimately be empty, but the key must exist.
     assert "retrieval_context" in state, "Missing 'retrieval_context' in state before planning."
     
-    static_params = config["configurable"]["static_params"]
+    configurable = cast(Dict[str, Any], config.get("configurable", {}))
+    static_params = cast(Dict[str, Any], configurable.get("static_params", {}))
     enable_planning: bool = static_params["enable_planning"]
 
     if not enable_planning:
@@ -192,7 +202,8 @@ async def plan_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, 
         return {"request_plan": request_plan, "general_info": general_info}
 
     # Planning enabled: run full planning
-    rp_params = config["configurable"]["agent_params"]["request_planner"]
+    agent_params = cast(Dict[str, Any], configurable.get("agent_params", {}))
+    rp_params = cast(Dict[str, Any], agent_params.get("request_planner", {}))
     model_name: str = rp_params["model_name"]
     model_temperature: float = rp_params["model_temperature"]
     max_tokens: int = rp_params["max_tokens"]
@@ -218,7 +229,9 @@ async def codegen_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
     assert state.get("user_prompt"), "Missing 'user_prompt' in state before code generation."
     assert state.get("general_info"), "Missing 'general_info' in state before code generation."
     
-    cg_params = config["configurable"]["agent_params"]["code_generator"]
+    configurable = cast(Dict[str, Any], config.get("configurable", {}))
+    agent_params = cast(Dict[str, Any], configurable.get("agent_params", {}))
+    cg_params = cast(Dict[str, Any], agent_params.get("code_generator", {}))
     model_size: str = cg_params["model_name"]
     temperature: float = cg_params["model_temperature"]
     max_tokens: int = cg_params["max_tokens"]
@@ -264,7 +277,9 @@ async def reflect_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
     # generated_code can be empty on failed generation; reflector should still produce actionable feedback.
     assert "generated_code" in state, "Missing 'generated_code' key in state before reflection."
 
-    ref_params = config["configurable"]["agent_params"]["reflector"]
+    configurable = cast(Dict[str, Any], config.get("configurable", {}))
+    agent_params = cast(Dict[str, Any], configurable.get("agent_params", {}))
+    ref_params = cast(Dict[str, Any], agent_params.get("reflector", {}))
     model_size: str = ref_params["model_name"]
     temperature: float = ref_params["model_temperature"]
     max_tokens: int = ref_params["max_tokens"]
