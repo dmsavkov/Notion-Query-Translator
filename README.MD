@@ -113,7 +113,7 @@ python run_pipeline.py
 
 # Evaluate the generated artifacts (Code, RAG context, Execution pass/fail) using LLM-as-a-judge
 
-python evaluate.py
+python evaluation/evaluate.py
 ```
 
 Retrieving your Database Schemas

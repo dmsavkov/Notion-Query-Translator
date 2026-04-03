@@ -1,7 +1,18 @@
 import operator
+from dataclasses import dataclass
 from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict
 
 from pydantic import BaseModel, ConfigDict
+
+
+@dataclass(frozen=True)
+class RagBuildConfig:
+    corpora_path: str = "./data/corpora.txt"
+    qdrant_path: str = "./data/.qdrant_storage"
+    leaf_collection_name: str = "notion_docs_leaf"
+    parent_collection_name: str = "notion_docs_parent"
+    parent_chunk_size: int = 2000
+    leaf_chunk_size: int = 200
 
 
 class CodeGeneratorParams(BaseModel):

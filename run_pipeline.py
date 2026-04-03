@@ -8,7 +8,6 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langchain_core.runnables import RunnableConfig
 
-from build_rag import RagBuildConfig
 from src.nodes import (
     codegen_node,
     execute_node,
@@ -21,7 +20,6 @@ from src.nodes import (
     retrieve_node,
 )
 from src.all_functionality import load_eval_tasks
-from src.rag_utils import close_qdrant_client_safely
 from src.routing import (
     route_after_codegen,
     route_after_execute,
@@ -33,6 +31,7 @@ from src.schema import (
     CliParams,
     PipelineParams,
     PipelineState,
+    RagBuildConfig,
     StaticParams,
     build_cli_eval_tasks,
     generate_default_state,
@@ -81,6 +80,7 @@ async def execute_single_run(
     pipeline_params: PipelineParams,
     agent_params: AgentParams,
     rag_build_config: RagBuildConfig,
+    thread_id: Optional[str] = None,
     pipeline: Optional[Any] = None,
     checkpointer: Optional[Any] = None,
 ) -> PipelineState:
@@ -93,7 +93,7 @@ async def execute_single_run(
     initial_state = generate_default_state(task_id=task_id, user_prompt=prompt)
 
     configurable = {
-        "thread_id": generate_thread_id(prefix=task_id),
+        "thread_id": thread_id or generate_thread_id(prefix=task_id),
         "pipeline_params": pipeline_params.model_dump(),
         "static_params": static_params.model_dump(),
         "agent_params": agent_params.model_dump(),
@@ -168,6 +168,7 @@ async def run(
 
             return {task_id: result for task_id, result in task_results}
     finally:
+        from src.rag_utils import close_qdrant_client_safely
         close_qdrant_client_safely()
 
 

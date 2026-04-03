@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import Dict, List
 from uuid import uuid4
 
@@ -6,18 +5,8 @@ from chonkie import RecursiveChunker, Chunk
 from qdrant_client import QdrantClient
 from qdrant_client import models as qmodels
 
-from src.config import QDRANT_PATH
+from src.schema import RagBuildConfig
 from src.rag_utils import embed_text
-
-
-@dataclass
-class RagBuildConfig:
-    corpora_path: str = "./data/corpora.txt"
-    qdrant_path: str = QDRANT_PATH
-    leaf_collection_name: str = "notion_docs_leaf"
-    parent_collection_name: str = "notion_docs_parent"
-    parent_chunk_size: int = 2000
-    leaf_chunk_size: int = 200
 
 
 def load_corpora(cfg: RagBuildConfig) -> str:

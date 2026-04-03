@@ -26,9 +26,6 @@ from .prompts import (
     build_generate_request_plan_prompt,
     build_reflect_code_prompt,
 )
-from .rag_utils import (
-    query_qdrant,
-)
 
 logger = logging.getLogger(__name__)
 
