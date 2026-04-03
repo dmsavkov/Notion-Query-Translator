@@ -1,8 +1,6 @@
 import asyncio
-from dataclasses import asdict
 import warnings
 from typing import Any, Dict, Optional, cast
-import datetime
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import END, START, StateGraph
@@ -26,6 +24,7 @@ from src.routing import (
     route_after_precheck,
     route_after_reflect,
 )
+from src.running_utils import execute_single_run, generate_thread_id
 from src.schema import (
     AgentParams,
     CliParams,
@@ -34,16 +33,8 @@ from src.schema import (
     RagBuildConfig,
     StaticParams,
     build_cli_eval_tasks,
-    generate_default_state,
 )
 from evals.test_dbs_script import provision_infrastructure
-
-
-def generate_thread_id(prefix: Optional[str] = None) -> str:
-    right_now = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-    unique_id = f"{prefix}_{right_now}" if prefix else right_now
-    return unique_id
-
 
 def build_pipeline():
     graph = StateGraph(PipelineState)
@@ -70,48 +61,6 @@ def build_pipeline():
     graph.add_conditional_edges("reflect", route_after_reflect)
 
     return graph
-
-
-async def execute_single_run(
-    *,
-    task_id: str,
-    task_data: Dict[str, Any],
-    static_params: StaticParams,
-    pipeline_params: PipelineParams,
-    agent_params: AgentParams,
-    rag_build_config: RagBuildConfig,
-    thread_id: Optional[str] = None,
-    pipeline: Optional[Any] = None,
-    checkpointer: Optional[Any] = None,
-) -> PipelineState:
-    prompt = (
-        task_data.get("query")
-        or task_data.get("user_prompt")
-        or task_data.get("task")
-        or ""
-    )
-    initial_state = generate_default_state(task_id=task_id, user_prompt=prompt)
-
-    configurable = {
-        "thread_id": thread_id or generate_thread_id(prefix=task_id),
-        "pipeline_params": pipeline_params.model_dump(),
-        "static_params": static_params.model_dump(),
-        "agent_params": agent_params.model_dump(),
-        "build_rag": asdict(rag_build_config),
-    }
-
-    runnable_pipeline = pipeline
-    if runnable_pipeline is None:
-        runnable_pipeline = build_pipeline().compile(checkpointer=checkpointer)
-
-    final_state = await runnable_pipeline.ainvoke(
-        initial_state,
-        config=RunnableConfig(
-            configurable=configurable,
-            metadata=configurable,
-        ),
-    )
-    return cast(PipelineState, final_state)
 
 
 async def run(
