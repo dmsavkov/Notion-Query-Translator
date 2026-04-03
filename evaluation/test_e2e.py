@@ -9,10 +9,10 @@ from langsmith import Client
 from langsmith.evaluation import aevaluate
 from pydantic import BaseModel, ConfigDict, computed_field
 
-from src.running_utils import execute_single_run
 from src.all_functionality import load_eval_tasks
 from src.error_analysis import HumanConfig, main as run_error_analysis_main
 from src.evaluator import Evaluator
+from src.running_utils import execute_single_run
 from src.schema import AgentParams, PipelineParams, RagBuildConfig, StaticParams
 
 class EvaluationSettings(BaseModel):
@@ -439,6 +439,7 @@ async def main(settings: Optional[EvaluationSettings] = None) -> None:
     eval_tasks = final_settings.load_eval_tasks()
 
     _ensure_dataset(client, final_settings.dataset_name, eval_tasks)
+    proviision_infrastructure()
 
     target = make_live_eval_target(
         static_params,
