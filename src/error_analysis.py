@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from langsmith import Client
 
 from .all_functionality import async_chat_wrapper
-from .config import _MODEL_MAP
+from .models.config import _MODEL_MAP
 
 
 GROUP_PROMPT_PATH = Path("instructions/helpful-prompts/chatbot_group_report_prompt.md")

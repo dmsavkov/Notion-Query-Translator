@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from pydantic import BaseModel, Field
@@ -12,6 +13,11 @@ class ExecutionResult(BaseModel):
     stderr: str
     passed: bool
     error: Optional[str] = None
+
+
+def generate_thread_id(prefix: Optional[str] = None) -> str:
+    right_now = datetime.now().strftime("%Y%m%d%H%M%S")
+    return f"{prefix}_{right_now}" if prefix else right_now
 
 def run_isolated_code(code: str, task_id: str) -> ExecutionResult:
     """
@@ -68,3 +74,6 @@ def run_isolated_code(code: str, task_id: str) -> ExecutionResult:
             passed=False,
             error=type(e).__name__
         )
+
+
+__all__ = ["ExecutionResult", "generate_thread_id", "run_isolated_code"]

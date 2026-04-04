@@ -3,7 +3,7 @@ import os
 import shutil
 from pathlib import Path
 from src.all_functionality import build_general_info, load_eval_tasks
-from run_pipeline import generate_thread_id
+from src.utils.execution_utils import generate_thread_id
 
 @pytest.mark.unit
 def test_generate_thread_id():

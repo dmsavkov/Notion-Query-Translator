@@ -3,6 +3,11 @@ import asyncio
 import typer
 from rich.console import Console
 
+from src.adapters.cli_factory import build_app_config_from_cli
+from src.adapters.cli_presenter import format_lifecycle_result
+from src.core.lifecycle import run_with_lifecycle
+from src.models.schema import CliParams, build_cli_eval_tasks
+
 app = typer.Typer(help="CLI for running the Notion agent pipeline.")
 console = Console()
 
@@ -17,46 +22,24 @@ def run(
         help="Enable reflection (not 'Minimal' mode)",
     ),
 ) -> None:
-    """Run the Notion agent pipeline for a single user prompt.
-
-    This command wraps the async pipeline entrypoint and passes
-    structured CLI parameters to `main`.
-    """
-    from src.schema import CliParams
-    from run_pipeline import main
+    """Run the Notion agent pipeline for a single user prompt."""
 
     try:
         cli_params = CliParams(user_prompt=user_prompt, think=think)
-        result = asyncio.run(main(cli_params=cli_params, dev_mode=False))
+        app_config = build_app_config_from_cli(cli_params=cli_params)
+        eval_tasks = build_cli_eval_tasks(cli_params)
+        result = asyncio.run(run_with_lifecycle(tasks=eval_tasks, app_config=app_config))
     except Exception as exc:
         typer.secho(f"Error: {exc}", fg=typer.colors.RED)
         raise typer.Exit(code=1)
-    
-    # Extract the single task result
+
     task_result = result.get("user_request", {})
-    
-    # Display results
-    passed = task_result.get("passed", False)
-    output = task_result.get("output", "")
-    final_code = task_result.get("final_code", "")
     error = task_result.get("error")
-    
+
+    console.print(format_lifecycle_result(result))
+
     if error:
-        console.print(f"ERROR: {error}")
         raise typer.Exit(code=1)
-    
-    if passed:
-        console.print("PASS")
-        console.print("\n[bold cyan]Execution Output:[/bold cyan]")
-        console.print(output or "(no output)")
-    else:
-        console.print("FAIL")
-        console.print("\n[bold yellow]Output:[/bold yellow]")
-        console.print(output or "(no output)")
-    
-    if final_code:
-        console.print("\n[bold cyan]Generated Code:[/bold cyan]")
-        console.print(final_code)
 
 
 if __name__ == "__main__":

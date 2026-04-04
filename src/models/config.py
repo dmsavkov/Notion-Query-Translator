@@ -108,3 +108,34 @@ def setup() -> None:
         raise EnvironmentError(f"Missing required environment variables: {missing}")
 
 setup()
+
+
+# ── App-Level Runtime Config ─────────────────────────────────────────────────
+
+from .schema import AgentParams, CliParams, PipelineParams, RagBuildConfig, StaticParams
+
+
+@dataclass(frozen=True)
+class AppConfig:
+    pipeline: PipelineParams
+    static: StaticParams
+    agent: AgentParams
+    rag: RagBuildConfig
+
+
+__all__ = [
+    "AgentParams",
+    "AppConfig",
+    "CliParams",
+    "EvalJudgeResult",
+    "EvalTaskInput",
+    "PipelineParams",
+    "QDRANT_PATH",
+    "RagBuildConfig",
+    "SearchResult",
+    "StaticParams",
+    "TextNode",
+    "_MODEL_MAP",
+    "build_logger",
+    "setup",
+]

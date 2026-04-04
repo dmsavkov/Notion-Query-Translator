@@ -42,12 +42,9 @@ notion-agent = "notion_query.cli:app"
 [tool.uv]
 package = true
 
-[tool.setuptools]
-py-modules = ["cli", "build_rag", "run_pipeline", ]
-
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["notion_query*", "src*", "evals*", "evaluation*"]
+include = ["notion_query*", "src*"]
 
 [dependency-groups]
 dev = [

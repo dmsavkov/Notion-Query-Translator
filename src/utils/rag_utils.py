@@ -1,15 +1,14 @@
 import json
 import logging
-import atexit
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from fastembed import TextEmbedding
 from qdrant_client import QdrantClient
-from qdrant_client import models as qmodels
 
-from .config import QDRANT_PATH, SearchResult, TextNode
-from .prompts import (
+from ..models.config import QDRANT_PATH, SearchResult, TextNode
+from ..models.prompts import (
     build_cot_decompose_prompt,
     build_domain_decompose_prompt,
     build_multi_query_prompt,
@@ -36,22 +35,21 @@ def build_qdrant_client(path: str) -> QdrantClient:
     return QdrantClient(path=path)
 
 
-# Global Qdrant client instance
-qdrant_client = build_qdrant_client(QDRANT_PATH)
-
-
-def close_qdrant_client_safely() -> None:
-    """Close global Qdrant client and suppress teardown-time errors."""
+@asynccontextmanager
+async def qdrant_client_context(path: str = QDRANT_PATH):
+    """Own a Qdrant client lifecycle in async scopes via AsyncExitStack."""
+    client = build_qdrant_client(path)
     try:
-        qdrant_client.close()
-    except Exception:
-        pass
-
-
-atexit.register(close_qdrant_client_safely)
+        yield client
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
 
 
 async def query_qdrant(
+    qdrant_client: Optional[QdrantClient],
     query: str,
     collection_name: str = "notion_docs_leaf",
     top_k: int = 5,
@@ -64,6 +62,9 @@ async def query_qdrant(
     If use_parent_texts is True, retrieves parent text from parent_collection_name
     and replaces the leaf text with the parent text.
     """
+    if qdrant_client is None:
+        return []
+
     query_vec = embed_text(query).tolist()
     response = qdrant_client.query_points(
         collection_name=collection_name,

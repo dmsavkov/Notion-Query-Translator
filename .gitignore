@@ -106,8 +106,8 @@ rag_exp/
 rag_experimenting.ipynb
 
 # Vector stores and embeddings (if large)
-vectors/
-models/
+/vectors/
+/models/
 
 # Corpora and raw data
 corpora.txt

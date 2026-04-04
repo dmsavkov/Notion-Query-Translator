@@ -4,10 +4,8 @@ from pathlib import Path
 import sys
 import warnings
 from typing import Any, Dict, List, Optional, cast
-from uuid import uuid4
 
 import pytest
-from langgraph.checkpoint.memory import MemorySaver
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -17,10 +15,11 @@ from src.evaluation_utils import (
     evaluation_orchestration,
     StandardEvaluationSettings,
 )
+from src.core.lifecycle import run_with_lifecycle
 from src.error_analysis import HumanConfig
 from src.evaluator import Evaluator
-from src.running_utils import execute_single_run
-from src.schema import AgentParams, PipelineParams, RagBuildConfig, StaticParams
+from src.models.config import AppConfig
+from src.models.schema import AgentParams, PipelineParams, RagBuildConfig, StaticParams
 
 from pydantic import ConfigDict
 
@@ -73,7 +72,7 @@ def _synthesize_eval_context(
     final_code = str(outputs.get("final_code") or outputs.get("generated_code") or "")
     execution_output = str(outputs.get("execution_output") or "")
 
-    solution_run = outputs.get("execution") or {}
+    solution_run = outputs.get("execution") or outputs.get("solution_run") or {}
     if not isinstance(solution_run, dict):
         solution_run = {}
 
@@ -102,6 +101,7 @@ def _error_target_output(task_id: str, thread_id: str, error: str) -> Dict[str, 
         "retrieval_context": "",
         "final_code": "",
         "execution": {},
+        "solution_run": {},
         "execution_output": "",
         "function_name": "",
         "error": error,
@@ -118,11 +118,17 @@ def make_live_eval_target(
     """
     Build a LangSmith target that executes one live pipeline run per dataset sample.
 
-    The target uses a fresh in-memory checkpointer per invocation and returns
-    only evaluator-required output fields.
+    The target delegates lifecycle ownership to run_with_lifecycle, which creates
+    the SQL checkpointer and any conditional shared resources.
     """
     final_agent_params = agent_params or AgentParams()
     final_rag_build_config = rag_build_config or RagBuildConfig()
+    app_config = AppConfig(
+        pipeline=pipeline_params,
+        static=static_params,
+        agent=final_agent_params,
+        rag=final_rag_build_config,
+    )
 
     async def target(inputs: Dict[str, Any]) -> Dict[str, Any]:
         task_id = str(inputs.get("task_id") or "").strip()
@@ -131,7 +137,7 @@ def make_live_eval_target(
 
         task_query = str(inputs.get("query") or inputs.get("user_prompt") or inputs.get("task") or "").strip()
 
-        thread_id = f"{task_id}_{uuid4().hex}"
+        thread_id = f"{task_id}_live"
         if not task_query:
             return _error_target_output(
                 task_id=task_id,
@@ -140,16 +146,11 @@ def make_live_eval_target(
             )
 
         try:
-            final_state = await execute_single_run(
-                task_id=task_id,
-                task_data={"query": task_query},
-                static_params=static_params,
-                pipeline_params=pipeline_params,
-                agent_params=final_agent_params,
-                rag_build_config=final_rag_build_config,
-                thread_id=thread_id,
-                checkpointer=MemorySaver(),
+            result = await run_with_lifecycle(
+                tasks={task_id: {"query": task_query}},
+                app_config=app_config,
             )
+            final_state = result[task_id]
         except Exception as exc:
             warnings.warn(
                 f"Live target execution failed for task_id='{task_id}': {exc}",
@@ -167,6 +168,7 @@ def make_live_eval_target(
             "retrieval_context": str(final_state.get("retrieval_context") or ""),
             "final_code": str(final_state.get("final_code") or final_state.get("generated_code") or ""),
             "execution": execution,
+            "solution_run": execution,
             "execution_output": str(final_state.get("execution_output") or ""),
             "function_name": str(final_state.get("function_name") or ""),
             "error": "",
