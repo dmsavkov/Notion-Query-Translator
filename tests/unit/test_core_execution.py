@@ -57,6 +57,27 @@ async def test_execute_single_returns_raw_final_state():
 
 
 @pytest.mark.unit
+@pytest.mark.asyncio
+async def test_execute_single_returns_error_state_when_pipeline_raises():
+    pipeline = AsyncMock()
+    pipeline.ainvoke = AsyncMock(side_effect=RuntimeError("boom"))
+
+    result = await execute_single(
+        tasks={"task-1": {"query": "Write code"}},
+        app_config=_build_app_config(),
+        pipeline=pipeline,
+        thread_id="thread-123",
+    )
+
+    task_result = result["task-1"]
+    assert task_result["task_id"] == "task-1"
+    assert task_result["user_prompt"] == "Write code"
+    assert task_result["generated_code"] == ""
+    assert task_result["solution_run"] == {}
+    assert task_result["error"] == "boom"
+
+
+@pytest.mark.unit
 def test_format_lifecycle_result_uses_generated_code_fallback():
     rendered = format_lifecycle_result(
         {
