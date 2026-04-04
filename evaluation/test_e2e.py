@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import warnings
 from typing import Any, Dict, List, Optional, cast
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -175,6 +176,38 @@ def make_live_eval_target(
         }
 
     return target
+
+
+@pytest.mark.asyncio
+async def test_live_eval_target_uses_lifecycle_and_maps_core_fields():
+    target = make_live_eval_target(
+        StaticParams(context_used="baseline"),
+        PipelineParams(minimal=False),
+    )
+
+    final_state = {
+        "task_id": "task-1",
+        "retrieval_context": "ctx",
+        "generated_code": "print(42)",
+        "final_code": "",
+        "solution_run": {"passed": True, "stdout": "42\n", "stderr": "", "exit_code": 0},
+        "execution_output": "42\n",
+        "function_name": "main",
+    }
+
+    with patch("evaluation.test_e2e.run_with_lifecycle", new_callable=AsyncMock, return_value={"task-1": final_state}) as mock_lifecycle:
+        out = await target({"task_id": "task-1", "query": "Write code"})
+
+    assert out["task_id"] == "task-1"
+    assert out["retrieval_context"] == "ctx"
+    assert out["final_code"] == "print(42)"
+    assert out["execution"] == final_state["solution_run"]
+    assert out["solution_run"] == final_state["solution_run"]
+    assert out["execution_output"] == "42\n"
+    assert out["error"] == ""
+    mock_lifecycle.assert_awaited_once()
+    assert mock_lifecycle.await_args is not None
+    assert mock_lifecycle.await_args.kwargs["tasks"] == {"task-1": {"query": "Write code"}}
 
 
 def _present_score(status_items: List[Dict[str, Any]]) -> tuple[float, int]:
