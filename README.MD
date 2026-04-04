@@ -84,7 +84,7 @@ Build the RAG Database:
 Initialize the local Qdrant vector database with the Notion API corpora:
 
 ```bash
-python build_rag.py
+python scripts/build_rag.py
 ```
 
 💻 Usage
@@ -109,7 +109,7 @@ To run the LangSmith evaluation suite against the YAML test cases defined in eva
 ```bash
 # Execute the agent against the test cases
 
-python run_pipeline.py
+python -m notion_query.run_pipeline
 
 # Evaluate the generated artifacts (Code, RAG context, Execution pass/fail) using LLM-as-a-judge
 
@@ -137,11 +137,11 @@ dmsavkov-notion-query-translator/
 ├── notion_query/ # CLI entry points
 ├── scripts/ # Utilities for schema retrieval and error analysis
 ├── src/ # Core application logic
+│ ├── core/ # Lifecycle and execution orchestration
+│ ├── models/ # Config/state models and prompt/context assets
+│ ├── utils/ # Qdrant/OpenAI/execution helpers
 │ ├── nodes.py # LangGraph node definitions
-│ ├── prompts.py # System prompts and templates
-│ ├── rag_utils.py # Qdrant search and query decomposition
-│ ├── evaluator.py # LangSmith evaluation judges
-│ └── execution_utils.py # Isolated Python execution sandbox
+│ └── evaluator.py # LangSmith evaluation judges
 └── tests/ # Pytest test suites (unit, integration, smoke)
 ```
 

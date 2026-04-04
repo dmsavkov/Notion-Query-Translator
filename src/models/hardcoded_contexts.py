@@ -45,7 +45,7 @@ _HARDCODED_STRINGS = {
 
 def _load_context_files() -> Dict[str, str]:
     """Load all context files from the data/context directory."""
-    context_dir = Path(__file__).parent.parent / "data" / "context"
+    context_dir = Path(__file__).parent.parent.parent / "data" / "context"
     contexts = {}
     
     if context_dir.exists():

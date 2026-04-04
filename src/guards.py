@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 import openai
 
 from .all_functionality import async_chat_wrapper, extract_json_from_response
-from .openai_utils import create_async_openai_client
+from .utils.openai_utils import create_async_openai_client
 
 
 GENERAL_CHECK_LABEL_DESCRIPTIONS = {

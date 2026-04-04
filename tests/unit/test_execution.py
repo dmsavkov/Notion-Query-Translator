@@ -1,6 +1,6 @@
 import pytest
 import os
-from src.execution_utils import run_isolated_code
+from src.utils.execution_utils import run_isolated_code
 
 @pytest.mark.unit
 def test_run_isolated_code_success():

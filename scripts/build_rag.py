@@ -1,12 +1,12 @@
-from typing import Dict, List
+from typing import Any, Dict, List
 from uuid import uuid4
 
-from chonkie import RecursiveChunker, Chunk
+from chonkie import Chunk, RecursiveChunker
 from qdrant_client import QdrantClient
 from qdrant_client import models as qmodels
 
-from src.schema import RagBuildConfig
-from src.rag_utils import embed_text
+from src.models.schema import RagBuildConfig
+from src.utils.rag_utils import embed_text
 
 
 def load_corpora(cfg: RagBuildConfig) -> str:
@@ -14,22 +14,23 @@ def load_corpora(cfg: RagBuildConfig) -> str:
         return fh.read()
 
 
-def _chunk_text(text: list[str], chunk_size: int, overlap: int = 100) -> List[List[Chunk]]:
+def _chunk_text(text: List[str], chunk_size: int, overlap: int = 100) -> List[List[Chunk]]:
     """Use chonkie recursive character splitter for smarter chunking."""
     splitter = RecursiveChunker(
         chunk_size=chunk_size,
-        #chunk_overlap=overlap,
+        # chunk_overlap=overlap,
     )
     return splitter.chunk_batch(text)
+
 
 def create_id() -> str:
     """Generate a unique ID for each chunk."""
     return str(uuid4())
 
 
-def chunk_corpora(text: str, cfg: RagBuildConfig) -> Dict[str, Dict[str, str]]:
+def chunk_corpora(text: str, cfg: RagBuildConfig) -> Dict[str, Dict[str, Any]]:
     """Build 2-layer hierarchy: parent chunks (layer 0) and leaf chunks (layer 1)."""
-    storage: Dict[str, Dict[str, str]] = {}
+    storage: Dict[str, Dict[str, Any]] = {}
     parent_chunks_matrix = _chunk_text([text], cfg.parent_chunk_size, overlap=200)
     parent_chunks = parent_chunks_matrix[0]
     parent_ids = []
@@ -64,24 +65,23 @@ def chunk_corpora(text: str, cfg: RagBuildConfig) -> Dict[str, Dict[str, str]]:
     return storage
 
 
-def embed_and_upsert(storage: Dict[str, Dict[str, str]], cfg: RagBuildConfig) -> None:
-    """Create two collections: leaf_embeddings (with vectors) and parent_docs (minimal vectors)."""
+def embed_and_upsert(storage: Dict[str, Dict[str, Any]], cfg: RagBuildConfig) -> None:
+    """Create two collections: leaf embeddings and parent docs with minimal vectors."""
     client = QdrantClient(path=cfg.qdrant_path)
-    
-    if client.collection_exists(cfg.leaf_collection_name) or client.collection_exists(cfg.parent_collection_name):
-        raise ValueError(f"One or both collections '{cfg.leaf_collection_name}' and '{cfg.parent_collection_name}' already exist. Please delete them before running this script.")
 
-    # Get vector dimension from first embed
+    if client.collection_exists(cfg.leaf_collection_name) or client.collection_exists(cfg.parent_collection_name):
+        raise ValueError(
+            f"One or both collections '{cfg.leaf_collection_name}' and '{cfg.parent_collection_name}' "
+            "already exist. Please delete them before running this script."
+        )
+
     sample_vec = embed_text("dimension probe").tolist()
     vec_dim = len(sample_vec)
 
-    # ── Leaf Collection: Full embeddings ────────────────────────────────────
     client.create_collection(
         collection_name=cfg.leaf_collection_name,
         vectors_config=qmodels.VectorParams(size=vec_dim, distance=qmodels.Distance.COSINE),
     )
-
-    # ── Parent Collection: Minimal vectors (all zeros for memory efficiency) ─
     client.create_collection(
         collection_name=cfg.parent_collection_name,
         vectors_config=qmodels.VectorParams(size=vec_dim, distance=qmodels.Distance.COSINE),
@@ -101,7 +101,6 @@ def embed_and_upsert(storage: Dict[str, Dict[str, str]], cfg: RagBuildConfig) ->
         }
 
         if payload["is_leaf"]:
-            # Leaf nodes: embed and store in leaf collection
             leaf_points.append(
                 qmodels.PointStruct(
                     id=node_id,
@@ -110,7 +109,6 @@ def embed_and_upsert(storage: Dict[str, Dict[str, str]], cfg: RagBuildConfig) ->
                 )
             )
         else:
-            # Parent nodes: use minimal [0.0] vectors for memory efficiency
             parent_points.append(
                 qmodels.PointStruct(
                     id=node_id,
@@ -119,21 +117,27 @@ def embed_and_upsert(storage: Dict[str, Dict[str, str]], cfg: RagBuildConfig) ->
                 )
             )
 
-    # Upsert to respective collections
     if leaf_points:
         client.upsert(collection_name=cfg.leaf_collection_name, points=leaf_points)
         print(f"Upserted {len(leaf_points)} leaf points to '{cfg.leaf_collection_name}'")
-    
+
     if parent_points:
         client.upsert(collection_name=cfg.parent_collection_name, points=parent_points)
-        print(f"Upserted {len(parent_points)} parent points to '{cfg.parent_collection_name}' (minimal vectors)")
-        
+        print(
+            f"Upserted {len(parent_points)} parent points to '{cfg.parent_collection_name}' "
+            "(minimal vectors)"
+        )
+
     client.close()
 
 
-if __name__ == "__main__":
+def main() -> None:
     cfg = RagBuildConfig()
     text = load_corpora(cfg)
     storage = chunk_corpora(text, cfg)
     embed_and_upsert(storage, cfg)
     print("Done: Qdrant DB built with 2 collections (leaf embeddings + parent docs with minimal vectors)")
+
+
+if __name__ == "__main__":
+    main()

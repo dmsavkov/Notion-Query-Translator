@@ -16,16 +16,16 @@ import openai
 from json_repair import repair_json
 from langsmith.wrappers import wrap_openai
 
-from .config import (
+from .models.config import (
     _MODEL_MAP,
 )
-from .openai_utils import create_async_openai_client
-from .prompts import (
+from .models.prompts import (
     build_concision_prompt,
     build_generate_code_prompt,
     build_generate_request_plan_prompt,
     build_reflect_code_prompt,
 )
+from .utils.openai_utils import create_async_openai_client
 
 logger = logging.getLogger(__name__)
 
