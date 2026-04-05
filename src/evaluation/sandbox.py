@@ -3,13 +3,14 @@ import requests
 import json
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from dotenv import load_dotenv
 
 # Inherit existing credentials before overriding with test instances
 load_dotenv()
 
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
-PARENT_PAGE_ID = "322cb17dcc448041af19eefbeb7abd30"
+SANDBOX_PARENT_PAGE_ID = os.getenv("SANDBOX_PARENT_PAGE_ID")
 HEADERS = {
     "Authorization": f"Bearer {NOTION_TOKEN}",
     "Content-Type": "application/json",
@@ -144,7 +145,7 @@ def recreate_inbox_page() -> str:
     # Instantiate fresh Inbox
     create_url = "https://api.notion.com/v1/pages"
     create_payload = {
-        "parent": {"type": "page_id", "page_id": PARENT_PAGE_ID},
+        "parent": {"type": "page_id", "page_id": SANDBOX_PARENT_PAGE_ID},
         "properties": {
             "title": {"title": [{"text": {"content": "Sandbox Inbox"}}]}
         }
@@ -156,7 +157,7 @@ def recreate_inbox_page() -> str:
 def create_projects_db() -> str:
     url = "https://api.notion.com/v1/databases"
     payload = {
-        "parent": {"type": "page_id", "page_id": PARENT_PAGE_ID},
+        "parent": {"type": "page_id", "page_id": SANDBOX_PARENT_PAGE_ID},
         "title": [{"type": "text", "text": {"content": "Sandbox Projects"}}],
         "properties": {
             "Name": {"title": {}}
@@ -169,7 +170,7 @@ def create_projects_db() -> str:
 def create_tasks_db(projects_db_id: str) -> str:
     url = "https://api.notion.com/v1/databases"
     payload = {
-        "parent": {"type": "page_id", "page_id": PARENT_PAGE_ID},
+        "parent": {"type": "page_id", "page_id": SANDBOX_PARENT_PAGE_ID},
         "title": [{"type": "text", "text": {"content": "Sandbox Tasks"}}],
         "properties": {
             "Name": {"title": {}},
@@ -262,10 +263,12 @@ def create_page(db_id: str, properties: dict) -> str:
 
 def export_test_environment(db_ids: dict, page_ids: dict):
     """Outputs standard API credentials and dynamic testing IDs to ../.env"""
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")
+    repo_root = Path(__file__).resolve().parents[2]
+    env_path = str(repo_root / ".env")
     
     env_content = f"""# Notion API Configuration
 NOTION_TOKEN={NOTION_TOKEN}
+SANDBOX_PARENT_PAGE_ID={os.environ.get("SANDBOX_PARENT_PAGE_ID", SANDBOX_PARENT_PAGE_ID)}
 
 # Notion Database IDs
 NOTION_PROJECTS_DATABASE_ID={db_ids['projects']}
@@ -292,7 +295,8 @@ POETRY_API_KEY={os.environ.get("POETRY_API_KEY", "your_poetry_api_key_here")}
         f.write(env_content)
     print(f"Test Environment deterministically generated at: {env_path}")
 
-def provision_infrastructure():
+
+def _ensure_sandbox_databases() -> tuple[str, str]:
     print("Validating Projects Database...")
     projects_db_id = search_database("Sandbox Projects")
     if not projects_db_id:
@@ -308,8 +312,7 @@ def provision_infrastructure():
         print(f"Created Tasks DB: {tasks_db_id}")
     else:
         print(f"Located Tasks DB: {tasks_db_id}")
-        
-        # Check if schema is complete and exactly aligned with eval requirements.
+
         print("  Checking schema integrity...")
         tasks_schema = get_database_schema(tasks_db_id)
         required_task_properties = {
@@ -325,8 +328,39 @@ def provision_infrastructure():
             tasks_db_id = create_tasks_db(projects_db_id)
             print(f"  Recreated Tasks DB: {tasks_db_id}")
         else:
-            # Ensure relation is still present and usable on reused DBs.
             ensure_tasks_db_schema(tasks_db_id, projects_db_id)
+
+    return projects_db_id, tasks_db_id
+
+
+def flash_sandbox_databases() -> dict:
+    """Reset sandbox state without seeding deterministic baseline records."""
+    projects_db_id, tasks_db_id = _ensure_sandbox_databases()
+
+    print("\nFlushing state: Archiving existing Sandbox Inbox & emptying Databases...")
+    inbox_page_id = recreate_inbox_page()
+    flush_database(projects_db_id)
+    flush_database(tasks_db_id)
+
+    print("Executing final state export...")
+    export_test_environment(
+        db_ids={"projects": projects_db_id, "tasks": tasks_db_id},
+        page_ids={
+            "inbox": inbox_page_id,
+            "id_project": os.environ.get("ID_PROJECT_PAGE_ID", ""),
+            "id_update": os.environ.get("ID_UPDATE_PAGE_ID", ""),
+        },
+    )
+    print("Sandbox flash complete.")
+
+    return {
+        "projects_db_id": projects_db_id,
+        "tasks_db_id": tasks_db_id,
+        "inbox_page_id": inbox_page_id,
+    }
+
+def provision_infrastructure():
+    projects_db_id, tasks_db_id = _ensure_sandbox_databases()
 
     # Inspect available properties in tasks database
     print("\n📋 Inspecting Tasks Database Schema...")
@@ -432,3 +466,21 @@ def provision_infrastructure():
 
 if __name__ == "__main__":
     provision_infrastructure()
+
+
+__all__ = [
+    "add_property_to_database",
+    "create_page",
+    "create_projects_db",
+    "create_tasks_db",
+    "delete_database",
+    "ensure_self_relation_property",
+    "ensure_tasks_db_schema",
+    "export_test_environment",
+    "flash_sandbox_databases",
+    "flush_database",
+    "get_database_schema",
+    "provision_infrastructure",
+    "recreate_inbox_page",
+    "search_database",
+]

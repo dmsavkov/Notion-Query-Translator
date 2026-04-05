@@ -149,7 +149,7 @@ async def evaluation_orchestration(
     task_specs = load_eval_tasks_or_raise(settings)
 
     if settings.provision_infrastructure:
-        from evals.test_dbs_script import provision_infrastructure
+        from src.evaluation.sandbox import provision_infrastructure
 
         provision_infrastructure()
 
