@@ -98,6 +98,25 @@ def _safe_json(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2, default=str)
 
 
+def _coerce_mapping(value: Any) -> Dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+
+    for attr_name in ("model_dump", "dict"):
+        dump_fn = getattr(value, attr_name, None)
+        if callable(dump_fn):
+            try:
+                dumped = dump_fn()
+            except TypeError:
+                continue
+            if isinstance(dumped, dict):
+                return dumped
+
+    return {}
+
+
 def _chunk_text(value: str, max_chars: int = MAX_NOTION_RICH_TEXT) -> List[str]:
     if not value:
         return ["(empty)"]
@@ -156,8 +175,9 @@ def load_experiment_runs(
             feedback_data = feedback_by_run.get(rid, {})
             scores = {k: v for k, v in feedback_data.items() if not k.endswith("_comment")}
 
-            outputs = run.outputs or {}
-            pre_state = outputs.get("pre_computed_state") or {}
+            outputs = _coerce_mapping(getattr(run, "outputs", None))
+            pre_state = _coerce_mapping(outputs.get("pre_computed_state"))
+            outputs = {**outputs, "pre_computed_state": pre_state}
             task_id = (
                 str(outputs.get("task_id") or "").strip()
                 or str(pre_state.get("task_id") or "").strip()
@@ -173,7 +193,7 @@ def load_experiment_runs(
             record: RunRecord = {
                 "experiment": str(getattr(project, "name", "") or ""),
                 "task_id": task_id,
-                "thread_id": outputs.get("thread_id", ""),
+                "thread_id": str(outputs.get("thread_id", "") or ""),
                 "run_id": rid,
                 "scores": scores,
                 "final_code": pre_state.get("final_code") or pre_state.get("generated_code") or "",
@@ -249,9 +269,9 @@ def _truncate_text(value: str, max_chars: Optional[int]) -> str:
     return text[:max_chars] + "\n... [truncated]"
 
 
-def _extract_plan_from_record(record: RunRecord, max_chars: int) -> Dict[str, Any]:
-    outputs = record.get("outputs", {}) or {}
-    pre_state = outputs.get("pre_computed_state", {}) or {}
+def _extract_plan_from_record(record: RunRecord, max_chars: Optional[int]) -> Dict[str, Any]:
+    outputs = _coerce_mapping(record.get("outputs", {}))
+    pre_state = _coerce_mapping(outputs.get("pre_computed_state"))
 
     candidates = {
         "outputs.plan": outputs.get("plan"),
@@ -281,10 +301,13 @@ def _extract_plan_from_record(record: RunRecord, max_chars: int) -> Dict[str, An
 def _record_snapshot(
     record: RunRecord,
     *,
-    max_code_chars: int,
-    max_rag_chars: int,
-    max_plan_chars: int,
+    max_code_chars: Optional[int],
+    max_rag_chars: Optional[int],
+    max_plan_chars: Optional[int],
 ) -> Dict[str, Any]:
+    outputs = _coerce_mapping(record.get("outputs", {}))
+    pre_state = _coerce_mapping(outputs.get("pre_computed_state"))
+
     return {
         "experiment": record.get("experiment", ""),
         "task_id": record.get("task_id", ""),
@@ -295,7 +318,7 @@ def _record_snapshot(
         "rag": _truncate_text(record.get("retrieval_context", "") or "", max_rag_chars),
         "plan": _extract_plan_from_record(record, max_plan_chars),
         "comments": record.get("comments", {}) or {},
-        "pre_computed_state": ((record.get("outputs", {}) or {}).get("pre_computed_state") or {}),
+        "pre_computed_state": pre_state,
     }
 
 

@@ -40,6 +40,12 @@ def build_reference_outputs(task_id: str, task_spec: Dict[str, Any]) -> Dict[str
     }
 
 
+def _get_value(source: Any, key: str, default: Any = None) -> Any:
+    if isinstance(source, dict):
+        return source.get(key, default)
+    return getattr(source, key, default)
+
+
 def load_eval_tasks_or_raise(settings: StandardEvaluationSettings) -> Dict[str, Dict[str, Any]]:
     task_specs = load_eval_tasks(settings.evals_dir, case_type=settings.evals_case_type)
     if not task_specs:
@@ -94,29 +100,22 @@ def ensure_dataset(client: Client, dataset_name: str, task_specs: Dict[str, Dict
 
 def _extract_execution_error(result: Any) -> Optional[Dict[str, str]]:
     """Extract execution errors from aevaluate iterator records."""
-    if isinstance(result, dict):
-        top_error = result.get("error")
-        run_payload = result.get("run") or {}
-        run_name = str(run_payload.get("name") or result.get("example_id") or result.get("id") or "Unknown")
-        outputs = run_payload.get("outputs") if isinstance(run_payload, dict) else {}
-    else:
-        top_error = getattr(result, "error", None)
-        run_payload = getattr(result, "run", None)
-        run_name = str(
-            getattr(run_payload, "name", None)
-            or getattr(result, "example_id", None)
-            or getattr(result, "id", None)
-            or "Unknown"
-        )
-        outputs = getattr(run_payload, "outputs", {}) if run_payload is not None else {}
+    top_error = _get_value(result, "error")
+    run_payload = _get_value(result, "run")
+    run_name = str(
+        _get_value(run_payload, "name")
+        or _get_value(result, "example_id")
+        or _get_value(result, "id")
+        or "Unknown"
+    )
+    outputs = _get_value(run_payload, "outputs", {}) if run_payload is not None else {}
 
     if top_error:
         return {"task": run_name, "error": str(top_error)}
 
-    if isinstance(outputs, dict):
-        output_error = outputs.get("error")
-        if output_error:
-            return {"task": run_name, "error": str(output_error)}
+    output_error = _get_value(outputs, "error")
+    if output_error:
+        return {"task": run_name, "error": str(output_error)}
 
     return None
 
