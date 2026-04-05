@@ -17,7 +17,7 @@ HEADERS = {
     "Notion-Version": "2022-06-28"
 }
 
-def search_database(title: str) -> str:
+def search_database(title: str) -> str | None:
     url = "https://api.notion.com/v1/search"
     payload = {
         "query": title,
