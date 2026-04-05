@@ -3,6 +3,7 @@ import os
 import sys
 from unittest.mock import AsyncMock, patch
 
+
 @pytest.fixture
 def mock_chat_wrapper():
     """Fixture to mock async_chat_wrapper for orchestration tests.
@@ -28,8 +29,9 @@ def provisioned_env():
     """
     if not os.getenv("NOTION_TOKEN"):
         pytest.skip("NOTION_TOKEN not found, skipping infrastructure provisioning")
-    
-    from evals.test_dbs_script import provision_infrastructure
+
+    from src.evaluation.sandbox import provision_infrastructure
+
     provision_infrastructure()
     return True
 
