@@ -43,13 +43,38 @@ def build_pipeline() -> StateGraph:
     graph.add_edge(START, "precheck_general")
     graph.add_edge(START, "precheck_security")
     graph.add_edge(["precheck_general", "precheck_security"], "precheck_join")
-    graph.add_conditional_edges("precheck_join", route_after_precheck)
+    graph.add_conditional_edges(
+        "precheck_join",
+        route_after_precheck,
+        {
+            "retrieve": "retrieve",
+            "malovolent_request": "malovolent_request",
+        },
+    )
     graph.add_edge("malovolent_request", END)
     graph.add_edge("retrieve", "plan")
     graph.add_edge("plan", "codegen")
-    graph.add_conditional_edges("codegen", route_after_codegen)
-    graph.add_conditional_edges("execute", route_after_execute)
-    graph.add_conditional_edges("reflect", route_after_reflect)
+    graph.add_conditional_edges(
+        "codegen",
+        route_after_codegen,
+        {"execute": "execute"},
+    )
+    graph.add_conditional_edges(
+        "execute",
+        route_after_execute,
+        {
+            "reflect": "reflect",
+            END: END,
+        },
+    )
+    graph.add_conditional_edges(
+        "reflect",
+        route_after_reflect,
+        {
+            "codegen": "codegen",
+            END: END,
+        },
+    )
     return graph
 
 
