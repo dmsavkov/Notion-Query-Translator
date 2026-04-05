@@ -3,9 +3,6 @@ import os
 import sys
 from unittest.mock import AsyncMock, patch
 
-# Add project root to path to ensure imports work correctly
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 @pytest.fixture
 def mock_chat_wrapper():
     """Fixture to mock async_chat_wrapper for orchestration tests.
