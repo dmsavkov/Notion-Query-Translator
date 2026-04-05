@@ -13,8 +13,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from .all_functionality import async_chat_wrapper, parse_statements_response
-from .models.prompts import build_prompt_statements
+from ..all_functionality import async_chat_wrapper, parse_statements_response
+from ..models.prompts import build_prompt_statements
 
 logger = logging.getLogger(__name__)
 

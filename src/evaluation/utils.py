@@ -5,7 +5,7 @@ from langsmith import Client
 from langsmith.evaluation import aevaluate
 from pydantic import BaseModel, ConfigDict, computed_field
 
-from .all_functionality import load_eval_tasks
+from ..all_functionality import load_eval_tasks
 
 
 class StandardEvaluationSettings(BaseModel):
@@ -155,7 +155,7 @@ async def evaluation_orchestration(
 
     ensure_dataset(eval_client, settings.dataset_name, task_specs)
 
-    print(f"\\n[Executing Eval] Dataset: {settings.dataset_name} | Prefix: {settings.experiment_prefix}")
+    print(f"\n[Executing Eval] Dataset: {settings.dataset_name} | Prefix: {settings.experiment_prefix}")
 
     results_iterator = await aevaluate(
         target,
@@ -193,3 +193,14 @@ async def evaluation_orchestration(
         "failed_executions": failed_executions,
         "error_analysis_result": error_analysis_result,
     }
+
+
+__all__ = [
+    "EvaluationSettings",
+    "StandardEvaluationSettings",
+    "build_reference_outputs",
+    "ensure_dataset",
+    "evaluation_orchestration",
+    "extract_task_prompt",
+    "load_eval_tasks_or_raise",
+]

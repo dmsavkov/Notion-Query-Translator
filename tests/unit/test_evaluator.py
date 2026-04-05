@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.evaluator import EvalInputs, Evaluator
+from src.evaluation.evaluator import EvalInputs, Evaluator
 
 
 @pytest.mark.unit
@@ -22,11 +22,11 @@ async def test_eval_context_statements_uses_chat_and_parser():
     evaluator = Evaluator(default_judge_model="gemma27", eval_temperature=0.15, max_tokens=777)
     parsed_rows = [{"statement": "has auth", "status": "present"}]
 
-    with patch("src.evaluator.build_prompt_statements", return_value="PROMPT") as mock_prompt, patch(
-        "src.evaluator.async_chat_wrapper",
+    with patch("src.evaluation.evaluator.build_prompt_statements", return_value="PROMPT") as mock_prompt, patch(
+        "src.evaluation.evaluator.async_chat_wrapper",
         new_callable=AsyncMock,
         return_value='[{"statement":"has auth","status":"present"}]',
-    ) as mock_chat, patch("src.evaluator.parse_statements_response", return_value=parsed_rows) as mock_parse:
+    ) as mock_chat, patch("src.evaluation.evaluator.parse_statements_response", return_value=parsed_rows) as mock_parse:
         result = await evaluator.eval_context_statements(
             context="ctx",
             statements=["has auth"],
@@ -48,7 +48,7 @@ async def test_eval_context_statements_uses_chat_and_parser():
 async def test_eval_context_statements_returns_empty_when_no_statements():
     evaluator = Evaluator()
 
-    with patch("src.evaluator.async_chat_wrapper", new_callable=AsyncMock) as mock_chat:
+    with patch("src.evaluation.evaluator.async_chat_wrapper", new_callable=AsyncMock) as mock_chat:
         result = await evaluator.eval_context_statements(context="ctx", statements=[])
 
     assert result == []

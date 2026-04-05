@@ -13,13 +13,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.evaluation_utils import (
+from src.evaluation.utils import (
     evaluation_orchestration,
     StandardEvaluationSettings,
 )
 from src.core.lifecycle import run_with_lifecycle
 from src.error_analysis import HumanConfig
-from src.evaluator import Evaluator
+from src.evaluation.evaluator import Evaluator
 from src.models.config import AppConfig
 from src.models.schema import AgentParams, PipelineParams, RagBuildConfig, StaticParams
 
