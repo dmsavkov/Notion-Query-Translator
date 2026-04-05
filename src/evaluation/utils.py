@@ -3,7 +3,7 @@ from typing import Any, Callable, Dict, List, Literal, Optional
 
 from langsmith import Client
 from langsmith.evaluation import aevaluate
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel, ConfigDict
 
 from ..all_functionality import load_eval_tasks
 
@@ -12,6 +12,7 @@ class StandardEvaluationSettings(BaseModel):
     """Standard, shared configuration for LangSmith-based evaluations."""
 
     experiment_prefix: str = "E2E Evaluation"
+    dataset_name: str = "Dataset v4."
     evals_case_type: Literal["simple", "complex", "all"] = "complex"
     eval_max_concurrency: int = 5
     run_error_analysis_after_eval: bool = True
@@ -19,16 +20,6 @@ class StandardEvaluationSettings(BaseModel):
     provision_infrastructure: bool = True
 
     model_config = ConfigDict(frozen=True)
-
-    @computed_field
-    @property
-    def dataset_name(self) -> str:
-        mapping = {
-            "complex": "Dataset v4.",
-            "simple": "Dataset v1.",
-            "all": "Dataset v3.",
-        }
-        return mapping[self.evals_case_type]
 
 
 EvaluationSettings = StandardEvaluationSettings

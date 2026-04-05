@@ -34,6 +34,7 @@ class E2EEvaluationSettings(StandardEvaluationSettings):
 
 SETTINGS = E2EEvaluationSettings(
     experiment_prefix="COMPLEX CONTEXT UPDATED: personal comprehensive + top25_20220628 + scratch, refl3.",
+    dataset_name="Dataset Complex v2.",
     evals_case_type="complex",
     eval_max_concurrency=5,
     run_error_analysis_after_eval=True,
