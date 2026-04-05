@@ -58,6 +58,37 @@ async def test_execute_single_returns_raw_final_state():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_execute_single_preserves_additional_task_fields_in_initial_state():
+    pipeline = AsyncMock()
+    final_state = {
+        "task_id": "task-1",
+        "user_prompt": "Write code",
+        "generated_code": "print(42)",
+        "function_name": "main",
+        "solution_run": {"exit_code": 0, "stdout": "42\n", "stderr": "", "passed": True},
+        "execution_output": "42\n",
+        "final_code": "print(42)",
+        "trials": [],
+    }
+    pipeline.ainvoke = AsyncMock(return_value=final_state)
+
+    result = await execute_single(
+        tasks={"task-1": {"query": "Write code", "think": True, "notes": "preserve me"}},
+        app_config=_build_app_config(),
+        pipeline=pipeline,
+        thread_id="thread-123",
+    )
+
+    assert result == {"task-1": final_state}
+    initial_state = pipeline.ainvoke.await_args.args[0]
+    assert initial_state["task_id"] == "task-1"
+    assert initial_state["user_prompt"] == "Write code"
+    assert initial_state["think"] is True
+    assert initial_state["notes"] == "preserve me"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_execute_single_returns_error_state_when_pipeline_raises():
     pipeline = AsyncMock()
     pipeline.ainvoke = AsyncMock(side_effect=RuntimeError("boom"))

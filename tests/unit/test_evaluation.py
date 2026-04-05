@@ -3,15 +3,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.evaluation.shared import evaluation_orchestration, make_live_eval_target
 from src.evaluation.utils import (
     StandardEvaluationSettings,
     _extract_execution_error,
     build_reference_outputs,
     ensure_dataset,
-    evaluation_orchestration,
     extract_task_prompt,
     load_eval_tasks_or_raise,
 )
+from src.models.schema import PipelineParams, StaticParams
 
 
 class _AsyncIterator:
@@ -31,10 +32,10 @@ class _AsyncIterator:
 
 
 @pytest.mark.unit
-def test_standard_evaluation_settings_dataset_name_mapping():
-    assert StandardEvaluationSettings(evals_case_type="complex").dataset_name == "Dataset v4."
-    assert StandardEvaluationSettings(evals_case_type="simple").dataset_name == "Dataset v1."
-    assert StandardEvaluationSettings(evals_case_type="all").dataset_name == "Dataset v3."
+def test_standard_evaluation_settings_uses_explicit_dataset_name():
+    assert StandardEvaluationSettings().dataset_name == "Dataset v4."
+    assert StandardEvaluationSettings(evals_case_type="simple").dataset_name == "Dataset v4."
+    assert StandardEvaluationSettings(dataset_name="Dataset custom.").dataset_name == "Dataset custom."
 
 
 @pytest.mark.unit
@@ -143,9 +144,9 @@ async def test_evaluation_orchestration_raises_on_execution_errors():
     rows = [{"run": {"name": "task-x", "outputs": {"error": "boom"}}}]
     client = MagicMock()
 
-    with patch("src.evaluation.utils.load_eval_tasks_or_raise", return_value={"task-x": {"query": "q"}}), patch(
-        "src.evaluation.utils.ensure_dataset"
-    ) as mock_ensure, patch("src.evaluation.utils.aevaluate", new_callable=AsyncMock, return_value=_AsyncIterator(rows)):
+    with patch("src.evaluation.shared.load_eval_tasks_or_raise", return_value={"task-x": {"query": "q"}}), patch(
+        "src.evaluation.shared.ensure_dataset"
+    ) as mock_ensure, patch("src.evaluation.shared.aevaluate", new_callable=AsyncMock, return_value=_AsyncIterator(rows)):
         with pytest.raises(AssertionError, match="task-x"):
             await evaluation_orchestration(
                 settings=settings,
@@ -173,11 +174,11 @@ async def test_evaluation_orchestration_runs_provisioning_and_error_analysis_whe
 
     client = MagicMock()
 
-    with patch("src.evaluation.utils.load_eval_tasks_or_raise", return_value={"task-1": {"query": "q"}}), patch(
-        "src.evaluation.utils.ensure_dataset"
-    ), patch("src.evaluation.utils.aevaluate", new_callable=AsyncMock, return_value=_AsyncIterator([])), patch(
+    with patch("src.evaluation.shared.load_eval_tasks_or_raise", return_value={"task-1": {"query": "q"}}), patch(
+        "src.evaluation.shared.ensure_dataset"
+    ), patch("src.evaluation.shared.aevaluate", new_callable=AsyncMock, return_value=_AsyncIterator([])), patch(
         "src.evaluation.sandbox.provision_infrastructure"
-    ) as mock_provision, patch("src.evaluation.utils.asyncio.to_thread", new_callable=AsyncMock, return_value={"ok": True}) as mock_to_thread:
+    ) as mock_provision, patch("src.evaluation.shared.asyncio.to_thread", new_callable=AsyncMock, return_value={"ok": True}) as mock_to_thread:
         result = await evaluation_orchestration(
             settings=settings,
             target=target,
@@ -192,3 +193,71 @@ async def test_evaluation_orchestration_runs_provisioning_and_error_analysis_whe
     assert mock_to_thread.await_args.args[1] == settings.experiment_prefix
     assert mock_to_thread.await_args.args[2] is human_cfg
     assert mock_to_thread.await_args.args[3] == settings.dataset_name
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_live_eval_target_uses_lifecycle_and_maps_core_fields():
+    target = make_live_eval_target(
+        StaticParams(context_used="baseline"),
+        PipelineParams(minimal=False),
+    )
+
+    final_state = {
+        "task_id": "task-1",
+        "retrieval_context": "ctx",
+        "generated_code": "print(42)",
+        "final_code": "",
+        "solution_run": {"passed": True, "stdout": "42\n", "stderr": "", "exit_code": 0},
+        "execution_output": "42\n",
+        "function_name": "main",
+    }
+
+    with patch("src.evaluation.shared.run_with_lifecycle", new_callable=AsyncMock, return_value={"task-1": final_state}) as mock_lifecycle:
+        out = await target({"task_id": "task-1", "query": "Write code"})
+
+    assert out["task_id"] == "task-1"
+    assert out["retrieval_context"] == "ctx"
+    assert out["final_code"] == "print(42)"
+    assert out["execution"] == final_state["solution_run"]
+    assert out["solution_run"] == final_state["solution_run"]
+    assert out["execution_output"] == "42\n"
+    assert out["error"] == ""
+    mock_lifecycle.assert_awaited_once()
+    assert mock_lifecycle.await_args is not None
+    assert mock_lifecycle.await_args.kwargs["tasks"] == {"task-1": {"query": "Write code"}}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_live_eval_target_prefers_input_state_payload_when_present():
+    target = make_live_eval_target(
+        StaticParams(context_used="baseline"),
+        PipelineParams(minimal=False),
+    )
+
+    input_state = {
+        "query": "Write code",
+        "think": True,
+        "notes": "preserve me",
+    }
+    final_state = {
+        "task_id": "task-2",
+        "retrieval_context": "ctx-2",
+        "generated_code": "print(7)",
+        "final_code": "",
+        "solution_run": {"passed": True, "stdout": "7\n", "stderr": "", "exit_code": 0},
+        "execution_output": "7\n",
+        "function_name": "main",
+    }
+
+    with patch("src.evaluation.shared.run_with_lifecycle", new_callable=AsyncMock, return_value={"task-2": final_state}) as mock_lifecycle:
+        out = await target({"task_id": "task-2", "input_state": input_state})
+
+    assert out["task_id"] == "task-2"
+    assert out["retrieval_context"] == "ctx-2"
+    assert out["final_code"] == "print(7)"
+    assert out["error"] == ""
+    mock_lifecycle.assert_awaited_once()
+    assert mock_lifecycle.await_args is not None
+    assert mock_lifecycle.await_args.kwargs["tasks"] == {"task-2": input_state}

@@ -1,8 +1,6 @@
-import asyncio
-from typing import Any, Callable, Dict, List, Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 from langsmith import Client
-from langsmith.evaluation import aevaluate
 from pydantic import BaseModel, ConfigDict
 
 from ..all_functionality import load_eval_tasks
@@ -44,6 +42,28 @@ def _get_value(source: Any, key: str, default: Any = None) -> Any:
     if isinstance(source, dict):
         return source.get(key, default)
     return getattr(source, key, default)
+
+
+def _extract_execution_error(result: Any) -> Optional[Dict[str, str]]:
+    """Extract execution errors from aevaluate iterator records."""
+    top_error = _get_value(result, "error")
+    run_payload = _get_value(result, "run")
+    run_name = str(
+        _get_value(run_payload, "name")
+        or _get_value(result, "example_id")
+        or _get_value(result, "id")
+        or "Unknown"
+    )
+    outputs = _get_value(run_payload, "outputs", {}) if run_payload is not None else {}
+
+    if top_error:
+        return {"task": run_name, "error": str(top_error)}
+
+    output_error = _get_value(outputs, "error")
+    if output_error:
+        return {"task": run_name, "error": str(output_error)}
+
+    return None
 
 
 def load_eval_tasks_or_raise(settings: StandardEvaluationSettings) -> Dict[str, Dict[str, Any]]:
@@ -98,99 +118,68 @@ def ensure_dataset(client: Client, dataset_name: str, task_specs: Dict[str, Dict
     return dataset
 
 
-def _extract_execution_error(result: Any) -> Optional[Dict[str, str]]:
-    """Extract execution errors from aevaluate iterator records."""
-    top_error = _get_value(result, "error")
-    run_payload = _get_value(result, "run")
-    run_name = str(
-        _get_value(run_payload, "name")
-        or _get_value(result, "example_id")
-        or _get_value(result, "id")
-        or "Unknown"
-    )
-    outputs = _get_value(run_payload, "outputs", {}) if run_payload is not None else {}
-
-    if top_error:
-        return {"task": run_name, "error": str(top_error)}
-
-    output_error = _get_value(outputs, "error")
-    if output_error:
-        return {"task": run_name, "error": str(output_error)}
-
-    return None
-
-
-async def evaluation_orchestration(
+def _synthesize_eval_context(
     *,
-    settings: StandardEvaluationSettings,
-    target: Callable[[Dict[str, Any]], Any],
-    evaluators: List[Any],
-    human_config: Optional[Any] = None,
-    client: Optional[Client] = None,
+    inputs: Dict[str, Any],
+    outputs: Dict[str, Any],
+    reference_outputs: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Shared orchestration for evaluation scripts/tests.
+    Synthesize all evaluation context from LangSmith parameters into a single dict.
+    All values come from reference_outputs (ground truth) or outputs (predictions).
 
-    Assertion policy is intentionally strict and narrow:
-    fail only when LangSmith execution records contain runtime errors/exceptions.
+    Returns:
+        {
+            "task_id": str,
+            "task": str,
+            "solution": str,
+            "retrieval_context": str,
+            "final_code": str,
+            "solution_run": Dict[str, Any],
+            "execution_output": str,
+            "correct_statements": List[str],
+        }
     """
-    eval_client = client or Client()
-
-    task_specs = load_eval_tasks_or_raise(settings)
-
-    if settings.provision_infrastructure:
-        from src.evaluation.sandbox import provision_infrastructure
-
-        provision_infrastructure()
-
-    ensure_dataset(eval_client, settings.dataset_name, task_specs)
-
-    print(f"\n[Executing Eval] Dataset: {settings.dataset_name} | Prefix: {settings.experiment_prefix}")
-
-    results_iterator = await aevaluate(
-        target,
-        data=settings.dataset_name,
-        evaluators=evaluators,
-        experiment_prefix=settings.experiment_prefix,
-        max_concurrency=settings.eval_max_concurrency,
+    task_id = (
+        str(outputs.get("task_id") or "").strip()
+        or str(reference_outputs.get("task_id") or "").strip()
+        or str(inputs.get("task_id") or "").strip()
     )
 
-    failed_executions: List[Dict[str, str]] = []
-    async for result in results_iterator:
-        error_record = _extract_execution_error(result)
-        if error_record:
-            failed_executions.append(error_record)
+    retrieval_context = str(outputs.get("retrieval_context") or "")
+    final_code = str(outputs.get("final_code") or outputs.get("generated_code") or "")
+    execution_output = str(outputs.get("execution_output") or "")
 
-    if failed_executions:
-        lines = [
-            f"Evaluation {settings.experiment_prefix} had {len(failed_executions)} execution crashes:",
-            *[f" - Task {item['task']}: {item['error']}" for item in failed_executions],
-        ]
-        raise AssertionError("\n".join(lines))
+    solution_run = outputs.get("execution") or outputs.get("solution_run") or {}
+    if not isinstance(solution_run, dict):
+        solution_run = {}
 
-    error_analysis_result: Optional[Dict[str, Any]] = None
-    if settings.run_error_analysis_after_eval:
-        from src.error_analysis import HumanConfig, main as run_error_analysis_main
-
-        error_analysis_result = await asyncio.to_thread(
-            run_error_analysis_main,
-            settings.experiment_prefix,
-            human_config or HumanConfig(),
-            settings.dataset_name,
-        )
+    task = reference_outputs.get("task", "")
+    solution = reference_outputs.get("solution", "")
+    statements = reference_outputs.get("correct_statements") or []
+    if not isinstance(statements, list):
+        statements = []
 
     return {
-        "failed_executions": failed_executions,
-        "error_analysis_result": error_analysis_result,
+        "task_id": task_id,
+        "task": task,
+        "solution": solution,
+        "retrieval_context": retrieval_context,
+        "final_code": final_code,
+        "solution_run": solution_run,
+        "execution_output": execution_output,
+        "correct_statements": statements,
     }
 
 
 __all__ = [
     "EvaluationSettings",
     "StandardEvaluationSettings",
+    "_extract_execution_error",
+    "_get_value",
+    "_synthesize_eval_context",
     "build_reference_outputs",
     "ensure_dataset",
-    "evaluation_orchestration",
     "extract_task_prompt",
     "load_eval_tasks_or_raise",
 ]

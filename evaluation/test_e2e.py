@@ -1,24 +1,17 @@
 import asyncio
 import json
-from pathlib import Path
-import sys
 import warnings
 from typing import Any, Dict, List, Optional, cast
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.evaluation.utils import (
-    evaluation_orchestration,
-    StandardEvaluationSettings,
-)
-from src.core.lifecycle import run_with_lifecycle
+from pydantic import ConfigDict
+
+from src.evaluation.shared import evaluation_orchestration, make_live_eval_target
+from src.evaluation.utils import StandardEvaluationSettings, _synthesize_eval_context
 from src.error_analysis import HumanConfig
 from src.evaluation.evaluator import Evaluator
-from src.models.config import AppConfig
 from src.models.schema import AgentParams, PipelineParams, RagBuildConfig, StaticParams
-
-from pydantic import ConfigDict
 
 
 class E2EEvaluationSettings(StandardEvaluationSettings):
@@ -36,175 +29,6 @@ SETTINGS = E2EEvaluationSettings(
     evals_dir="evals",
     provision_infrastructure=True,
 )
-
-
-def _synthesize_eval_context(
-    *,
-    inputs: Dict[str, Any],
-    outputs: Dict[str, Any],
-    reference_outputs: Dict[str, Any],
-) -> Dict[str, Any]:
-    """
-    Synthesize all evaluation context from LangSmith parameters into a single dict.
-    All values come from reference_outputs (ground truth) or outputs (predictions).
-
-    Returns:
-        {
-            "task_id": str,
-            "task": str,
-            "solution": str,
-            "retrieval_context": str,
-            "final_code": str,
-            "solution_run": Dict[str, Any],
-            "execution_output": str,
-            "correct_statements": List[str],
-        }
-    """
-    task_id = (
-        str(outputs.get("task_id") or "").strip()
-        or str(reference_outputs.get("task_id") or "").strip()
-        or str(inputs.get("task_id") or "").strip()
-    )
-
-    retrieval_context = str(outputs.get("retrieval_context") or "")
-    final_code = str(outputs.get("final_code") or outputs.get("generated_code") or "")
-    execution_output = str(outputs.get("execution_output") or "")
-
-    solution_run = outputs.get("execution") or outputs.get("solution_run") or {}
-    if not isinstance(solution_run, dict):
-        solution_run = {}
-
-    task = reference_outputs.get("task", "")
-    solution = reference_outputs.get("solution", "")
-    statements = reference_outputs.get("correct_statements") or []
-    if not isinstance(statements, list):
-        statements = []
-
-    return {
-        "task_id": task_id,
-        "task": task,
-        "solution": solution,
-        "retrieval_context": retrieval_context,
-        "final_code": final_code,
-        "solution_run": solution_run,
-        "execution_output": execution_output,
-        "correct_statements": statements,
-    }
-
-
-def _error_target_output(task_id: str, thread_id: str, error: str) -> Dict[str, Any]:
-    return {
-        "task_id": task_id,
-        "thread_id": thread_id,
-        "retrieval_context": "",
-        "final_code": "",
-        "execution": {},
-        "solution_run": {},
-        "execution_output": "",
-        "function_name": "",
-        "error": error,
-    }
-
-
-def make_live_eval_target(
-    static_params: StaticParams,
-    pipeline_params: PipelineParams,
-    *,
-    agent_params: Optional[AgentParams] = None,
-    rag_build_config: Optional[RagBuildConfig] = None,
-):
-    """
-    Build a LangSmith target that executes one live pipeline run per dataset sample.
-
-    The target delegates lifecycle ownership to run_with_lifecycle, which creates
-    the SQL checkpointer and any conditional shared resources.
-    """
-    final_agent_params = agent_params or AgentParams()
-    final_rag_build_config = rag_build_config or RagBuildConfig()
-    app_config = AppConfig(
-        pipeline=pipeline_params,
-        static=static_params,
-        agent=final_agent_params,
-        rag=final_rag_build_config,
-    )
-
-    async def target(inputs: Dict[str, Any]) -> Dict[str, Any]:
-        task_id = str(inputs.get("task_id") or "").strip()
-        if not task_id:
-            return _error_target_output(task_id="", thread_id="", error="Missing task_id in dataset inputs.")
-
-        task_query = str(inputs.get("query") or inputs.get("user_prompt") or inputs.get("task") or "").strip()
-
-        thread_id = f"{task_id}_live"
-        if not task_query:
-            return _error_target_output(
-                task_id=task_id,
-                thread_id=thread_id,
-                error=f"No prompt found for task_id='{task_id}' in dataset inputs or task specs.",
-            )
-
-        try:
-            result = await run_with_lifecycle(
-                tasks={task_id: {"query": task_query}},
-                app_config=app_config,
-            )
-            final_state = result[task_id]
-        except Exception as exc:
-            warnings.warn(
-                f"Live target execution failed for task_id='{task_id}': {exc}",
-                stacklevel=2,
-            )
-            return _error_target_output(task_id=task_id, thread_id=thread_id, error=str(exc))
-
-        execution = final_state.get("solution_run") or {}
-        if not isinstance(execution, dict):
-            execution = {}
-
-        return {
-            "task_id": task_id,
-            "thread_id": thread_id,
-            "retrieval_context": str(final_state.get("retrieval_context") or ""),
-            "final_code": str(final_state.get("final_code") or final_state.get("generated_code") or ""),
-            "execution": execution,
-            "solution_run": execution,
-            "execution_output": str(final_state.get("execution_output") or ""),
-            "function_name": str(final_state.get("function_name") or ""),
-            "error": "",
-        }
-
-    return target
-
-
-@pytest.mark.asyncio
-async def test_live_eval_target_uses_lifecycle_and_maps_core_fields():
-    target = make_live_eval_target(
-        StaticParams(context_used="baseline"),
-        PipelineParams(minimal=False),
-    )
-
-    final_state = {
-        "task_id": "task-1",
-        "retrieval_context": "ctx",
-        "generated_code": "print(42)",
-        "final_code": "",
-        "solution_run": {"passed": True, "stdout": "42\n", "stderr": "", "exit_code": 0},
-        "execution_output": "42\n",
-        "function_name": "main",
-    }
-
-    with patch("evaluation.test_e2e.run_with_lifecycle", new_callable=AsyncMock, return_value={"task-1": final_state}) as mock_lifecycle:
-        out = await target({"task_id": "task-1", "query": "Write code"})
-
-    assert out["task_id"] == "task-1"
-    assert out["retrieval_context"] == "ctx"
-    assert out["final_code"] == "print(42)"
-    assert out["execution"] == final_state["solution_run"]
-    assert out["solution_run"] == final_state["solution_run"]
-    assert out["execution_output"] == "42\n"
-    assert out["error"] == ""
-    mock_lifecycle.assert_awaited_once()
-    assert mock_lifecycle.await_args is not None
-    assert mock_lifecycle.await_args.kwargs["tasks"] == {"task-1": {"query": "Write code"}}
 
 
 def _present_score(status_items: List[Dict[str, Any]]) -> tuple[float, int]:
