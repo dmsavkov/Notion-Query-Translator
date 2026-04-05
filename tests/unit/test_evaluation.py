@@ -44,6 +44,7 @@ def test_extract_task_prompt_uses_expected_fallback_order():
     assert extract_task_prompt({"user_prompt": "prompt"}) == "prompt"
     assert extract_task_prompt({"task": "task text"}) == "task text"
     assert extract_task_prompt({"query": "", "user_prompt": "", "task": ""}) == ""
+    assert extract_task_prompt({"input_state": {"user_prompt": "nested prompt"}}) == "nested prompt"
 
 
 @pytest.mark.unit
@@ -65,6 +66,22 @@ def test_build_reference_outputs_includes_solution_and_statements_defaults():
     defaults = build_reference_outputs("task_b", {"task": "do work"})
     assert defaults["solution"] == ""
     assert defaults["correct_statements"] == []
+
+    nested = build_reference_outputs(
+        "task_c",
+        {
+            "input_state": {"user_prompt": "nested request"},
+            "reference_outputs": {
+                "relevant_to_notion_scope": True,
+                "complexity_label": "simple",
+                "request_type": "GET",
+            },
+        },
+    )
+    assert nested["task"] == "nested request"
+    assert nested["relevant_to_notion_scope"] is True
+    assert nested["complexity_label"] == "simple"
+    assert nested["request_type"] == "GET"
 
 
 @pytest.mark.unit

@@ -46,6 +46,7 @@ def load_eval_tasks(
     
     Returns:
         Dict of task_id -> task_data. Returns {} if directory not found.
+        YAML files may contain either a single mapping or a list of mappings.
     """
     tasks: Dict[str, Dict[str, Any]] = {}
     
@@ -58,14 +59,46 @@ def load_eval_tasks(
     for pattern in glob_patterns:
         for yaml_path in sorted(glob.glob(pattern)):
             stem = Path(yaml_path).stem
-            if stem in tasks:
-                raise ValueError(
-                    f"Duplicate eval task_id '{stem}' detected while loading '{yaml_path}'. "
-                    "Task IDs must be unique across selected eval suites."
-                )
             with open(yaml_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
-            tasks[stem] = data if data else {}
+
+            def _register_task(task_id: str, task_data: Dict[str, Any]) -> None:
+                if task_id in tasks:
+                    raise ValueError(
+                        f"Duplicate eval task_id '{task_id}' detected while loading '{yaml_path}'. "
+                        "Task IDs must be unique across selected eval suites."
+                    )
+                tasks[task_id] = task_data
+
+            if data is None:
+                _register_task(stem, {})
+                continue
+
+            if isinstance(data, list):
+                for index, row in enumerate(data, start=1):
+                    if not isinstance(row, dict):
+                        raise ValueError(
+                            f"Eval file '{yaml_path}' contains a non-mapping item at index {index}. "
+                            "Batch-style eval files must contain mappings only."
+                        )
+
+                    item_task_id = str(row.get("task_id") or f"{stem}__{index:02d}").strip()
+                    if not item_task_id:
+                        raise ValueError(
+                            f"Eval file '{yaml_path}' produced an empty task_id at index {index}."
+                        )
+                    _register_task(item_task_id, row)
+                continue
+
+            if not isinstance(data, dict):
+                raise ValueError(
+                    f"Eval file '{yaml_path}' must contain a mapping or a list of mappings, got {type(data).__name__}."
+                )
+
+            task_id = str(data.get("task_id") or stem).strip()
+            if not task_id:
+                raise ValueError(f"Eval file '{yaml_path}' produced an empty task_id.")
+            _register_task(task_id, data)
     
     return tasks
 

@@ -154,10 +154,10 @@ def build_cli_eval_tasks(cli_params: CliParams) -> Dict[str, Dict[str, Any]]:
     }
 
 
-def generate_default_state(task_id: str, user_prompt: str) -> PipelineState:
+def generate_default_state() -> PipelineState:
     return {
-        "task_id": task_id,
-        "user_prompt": user_prompt,
+        "task_id": "",
+        "user_prompt": "",
         "meta": {},
         "security": {},
         "retrieval_context": "",

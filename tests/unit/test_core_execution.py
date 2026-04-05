@@ -8,7 +8,7 @@ from src.core.execute_single import execute_single
 from src.core.execute_batch import execute_batch
 from src.core.lifecycle import run_with_lifecycle
 from src.models.config import AppConfig
-from src.models.schema import AgentParams, PipelineParams, RagBuildConfig, StaticParams
+from src.models.schema import AgentParams, PipelineParams, RagBuildConfig, StaticParams, generate_default_state
 
 
 class _DummyAsyncContext(AbstractAsyncContextManager):
@@ -26,6 +26,16 @@ def _build_app_config() -> AppConfig:
         agent=AgentParams(),
         rag=RagBuildConfig(),
     )
+
+
+@pytest.mark.unit
+def test_generate_default_state_starts_empty():
+    state = generate_default_state()
+
+    assert state["task_id"] == ""
+    assert state["user_prompt"] == ""
+    assert state["meta"] == {}
+    assert state["security"] == {}
 
 
 @pytest.mark.unit
@@ -85,6 +95,42 @@ async def test_execute_single_preserves_additional_task_fields_in_initial_state(
     assert initial_state["user_prompt"] == "Write code"
     assert initial_state["think"] is True
     assert initial_state["notes"] == "preserve me"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_execute_single_reads_prompt_from_nested_input_state():
+    pipeline = AsyncMock()
+    final_state = {
+        "task_id": "task-1",
+        "user_prompt": "Nested prompt",
+        "generated_code": "print(42)",
+        "function_name": "main",
+        "solution_run": {"exit_code": 0, "stdout": "42\n", "stderr": "", "passed": True},
+        "execution_output": "42\n",
+        "final_code": "print(42)",
+        "trials": [],
+    }
+    pipeline.ainvoke = AsyncMock(return_value=final_state)
+
+    result = await execute_single(
+        tasks={
+            "task-1": {
+                "input_state": {"user_prompt": "Nested prompt", "extra": "value"},
+                "reference_outputs": {"relevant_to_notion_scope": True},
+            }
+        },
+        app_config=_build_app_config(),
+        pipeline=pipeline,
+        thread_id="thread-123",
+    )
+
+    assert result == {"task-1": final_state}
+    initial_state = pipeline.ainvoke.await_args.args[0]
+    assert initial_state["task_id"] == "task-1"
+    assert initial_state["user_prompt"] == "Nested prompt"
+    assert initial_state["input_state"]["extra"] == "value"
+    assert initial_state["reference_outputs"]["relevant_to_notion_scope"] is True
 
 
 @pytest.mark.unit

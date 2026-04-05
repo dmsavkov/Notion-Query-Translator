@@ -45,6 +45,12 @@ def _build_running_config(
 
 
 def _extract_prompt(task_data: Dict[str, Any]) -> str:
+    input_state = task_data.get("input_state")
+    if isinstance(input_state, dict):
+        nested_prompt = input_state.get("user_prompt") or input_state.get("query") or input_state.get("task") or ""
+        if str(nested_prompt).strip():
+            return cast(str, nested_prompt)
+
     return cast(
         str,
         task_data.get("query")
@@ -64,7 +70,11 @@ async def _execute_single_task(
     qdrant_client: Any = None,
 ) -> Dict[str, Any]:
     prompt = _extract_prompt(task_data)
-    initial_state = generate_default_state(task_id=task_id, user_prompt=prompt)
+    initial_state = generate_default_state()
+    initial_state.update(task_data)
+    if not str(initial_state.get("user_prompt") or "").strip():
+        initial_state["user_prompt"] = prompt
+    initial_state["task_id"] = task_id
 
     try:
         final_state = await pipeline.ainvoke(

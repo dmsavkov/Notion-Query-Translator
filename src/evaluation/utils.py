@@ -24,18 +24,43 @@ EvaluationSettings = StandardEvaluationSettings
 
 
 def extract_task_prompt(task_spec: Dict[str, Any]) -> str:
+    input_state = task_spec.get("input_state")
+    if isinstance(input_state, dict):
+        nested_prompt = str(
+            input_state.get("query") or input_state.get("user_prompt") or input_state.get("task") or ""
+        ).strip()
+        if nested_prompt:
+            return nested_prompt
+
     return str(task_spec.get("query") or task_spec.get("user_prompt") or task_spec.get("task") or "").strip()
 
 
 def build_reference_outputs(task_id: str, task_spec: Dict[str, Any]) -> Dict[str, Any]:
     """Reference outputs attached to dataset examples (ground truth only)."""
     task = extract_task_prompt(task_spec)
-    return {
+    solution = task_spec.get("solution", "")
+    correct_statements = task_spec.get("correct_statements", []) or []
+
+    nested_reference_outputs = task_spec.get("reference_outputs")
+    if isinstance(nested_reference_outputs, dict):
+        if not solution:
+            solution = nested_reference_outputs.get("solution", "")
+        if not correct_statements:
+            correct_statements = nested_reference_outputs.get("correct_statements", []) or []
+
+    reference_outputs = {
         "task_id": task_id,
         "task": task,
-        "solution": task_spec.get("solution", ""),
-        "correct_statements": task_spec.get("correct_statements", []) or [],
+        "solution": solution,
+        "correct_statements": correct_statements,
     }
+
+    if isinstance(nested_reference_outputs, dict):
+        for key, value in nested_reference_outputs.items():
+            if key not in {"task_id", "task", "solution", "correct_statements"}:
+                reference_outputs[key] = value
+
+    return reference_outputs
 
 
 def _get_value(source: Any, key: str, default: Any = None) -> Any:
@@ -104,11 +129,17 @@ def ensure_dataset(client: Client, dataset_name: str, task_specs: Dict[str, Dict
     for task_id, task_spec in sorted(task_specs.items()):
         if task_id in existing_by_task_id:
             continue
+
+        inputs = {
+            "task_id": task_id,
+            "query": extract_task_prompt(task_spec),
+        }
+        input_state = task_spec.get("input_state")
+        if isinstance(input_state, dict):
+            inputs["input_state"] = input_state
+
         client.create_example(
-            inputs={
-                "task_id": task_id,
-                "query": extract_task_prompt(task_spec),
-            },
+            inputs=inputs,
             outputs=build_reference_outputs(task_id, task_spec),
             dataset_id=dataset.id,
         )
