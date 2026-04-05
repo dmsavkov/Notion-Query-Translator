@@ -17,7 +17,7 @@ def test_cli_run_pipeline_e2e_real_llm_no_patching():
         pytest.skip("GOOGLE_API_KEY is required for real LLM smoke test")
 
     cmd.extend([
-        "some prompt for retrieval",
+        "Add a new task called 'Pay invoices' to the Notion task database and set its status to 'In Progress'.",
     ])
 
     result = subprocess.run(
