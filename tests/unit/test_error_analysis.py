@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import Any, Dict, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -6,10 +7,19 @@ import pytest
 from src.error_analysis import (
     HumanConfig,
     _build_section_payloads,
+    _extract_plan_from_record,
     _statement_items,
     load_experiment_runs,
     run_error_analysis,
 )
+
+
+class _DumpablePayload:
+    def __init__(self, payload: dict):
+        self._payload = payload
+
+    def model_dump(self) -> dict:
+        return self._payload
 
 
 def _sample_record() -> dict:
@@ -75,7 +85,7 @@ def test_load_experiment_runs_extracts_complete_records():
         records = load_experiment_runs("exp_prefix", dataset_name="Dataset v4.")
 
     assert len(records) == 1
-    record = records[0]
+    record = cast(Dict[str, Any], records[0])
     assert record["experiment"] == "exp_prefix_A"
     assert record["task_id"] == "task_123"
     assert record["thread_id"] == "thread_123"
@@ -87,11 +97,47 @@ def test_load_experiment_runs_extracts_complete_records():
 
 
 @pytest.mark.unit
+def test_load_experiment_runs_normalizes_dumpable_payloads():
+    project = SimpleNamespace(name="exp_prefix_B")
+    run = SimpleNamespace(
+        id="run_456",
+        outputs=_DumpablePayload(
+            {
+                "thread_id": "thread_456",
+                "pre_computed_state": _DumpablePayload(
+                    {
+                        "task_id": "task_456",
+                        "final_code": "print('nested')",
+                        "retrieval_context": "nested ctx",
+                    }
+                ),
+            }
+        ),
+    )
+
+    fake_client = MagicMock()
+    fake_client.list_projects.return_value = [project]
+    fake_client.list_runs.return_value = [run]
+    fake_client.list_feedback.return_value = []
+
+    with patch("src.error_analysis.Client", return_value=fake_client):
+        records = load_experiment_runs("exp_prefix", dataset_name="Dataset v4.")
+
+    assert len(records) == 1
+    record = cast(Dict[str, Any], records[0])
+    assert record["task_id"] == "task_456"
+    assert record["thread_id"] == "thread_456"
+    assert record["final_code"] == "print('nested')"
+    assert record["retrieval_context"] == "nested ctx"
+    assert record["outputs"]["pre_computed_state"]["task_id"] == "task_456"
+
+
+@pytest.mark.unit
 def test_statement_items_filters_status_and_limit():
     records = [_sample_record()]
 
     wrong_only = _statement_items(
-        records,
+        cast(Any, records),
         score_key="code_statements_score",
         status_filter="wrong",
         max_examples=1,
@@ -120,7 +166,7 @@ def test_build_section_payloads_produces_complete_outputs():
     )
 
     with patch("src.error_analysis.build_group_report_prompt", side_effect=lambda artifacts: f"PROMPT::{artifacts[:20]}"):
-        payloads = _build_section_payloads(records, cfg)
+        payloads = _build_section_payloads(cast(Any, records), cfg)
 
     enabled_payloads = [p for p in payloads if p.enabled]
     enabled_names = {p.section_name for p in enabled_payloads}
@@ -128,6 +174,25 @@ def test_build_section_payloads_produces_complete_outputs():
     assert enabled_names == {"code", "code_execution", "code_statements", "code_mismatches"}
     assert all(isinstance(p.output, dict) for p in enabled_payloads)
     assert all(p.prompt.startswith("PROMPT::") for p in enabled_payloads)
+
+
+@pytest.mark.unit
+def test_extract_plan_from_record_prefers_outputs_plan_and_truncates():
+    record = {
+        "outputs": {
+            "plan": "1234567890",
+            "request_plan": "should_not_be_used",
+            "pre_computed_state": {
+                "plan": "also_not_used",
+                "request_plan": "also_not_used",
+            },
+        }
+    }
+
+    plan_info = _extract_plan_from_record(cast(Any, record), max_chars=5)
+
+    assert plan_info["source"] == "outputs.plan"
+    assert plan_info["plan"] == "12345\n... [truncated]"
 
 
 @pytest.mark.unit
