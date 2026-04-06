@@ -15,15 +15,32 @@ from .utils import StandardEvaluationSettings, _extract_execution_error, ensure_
 class ExactMatchEvaluator:
     """Exact-match evaluator for selected output keys against reference outputs."""
 
-    def __init__(self, keys_to_check: List[str], *, metric_key: str = "exact_match_score"):
+    def __init__(
+        self,
+        keys_to_check: List[str],
+        *,
+        metric_key: str = "exact_match_score",
+        output_container_key: Optional[str] = None,
+    ):
         self.keys_to_check = list(keys_to_check)
         self.metric_key = metric_key
+        self.output_container_key = output_container_key
+
+    def _resolve_output_source(self, outputs: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.output_container_key:
+            return outputs
+
+        container = outputs.get(self.output_container_key)
+        if isinstance(container, dict):
+            return container
+        return {}
 
     async def __call__(
         self, *, inputs: Dict[str, Any], outputs: Dict[str, Any], reference_outputs: Dict[str, Any]
     ) -> Dict[str, Any]:
         expected = reference_outputs if isinstance(reference_outputs, dict) else {}
         predicted = outputs if isinstance(outputs, dict) else {}
+        predicted_source = self._resolve_output_source(predicted)
 
         checked = 0
         matched = 0
@@ -31,12 +48,12 @@ class ExactMatchEvaluator:
 
         for key in self.keys_to_check:
             if key not in expected:
-                details.append({"key": key, "expected": None, "predicted": predicted.get(key), "match": None, "checked": False})
+                details.append({"key": key, "expected": None, "predicted": predicted_source.get(key), "match": None, "checked": False})
                 continue
 
             checked += 1
             expected_value = expected.get(key)
-            predicted_value = predicted.get(key)
+            predicted_value = predicted_source.get(key)
             is_match = predicted_value == expected_value
             if is_match:
                 matched += 1
