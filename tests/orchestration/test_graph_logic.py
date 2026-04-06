@@ -13,7 +13,15 @@ from src.models.schema import (
     RequestPlannerParams,
     StaticParams,
 )
-from src.nodes import codegen_node, execute_node, plan_node, reflect_node, retrieve_node
+from src.nodes import (
+    codegen_node,
+    execute_node,
+    plan_node,
+    precheck_general_node,
+    precheck_security_node,
+    reflect_node,
+    retrieve_node,
+)
 from src.routing import route_after_codegen, route_after_execute, route_after_reflect
 
 
@@ -159,6 +167,55 @@ def test_static_params_defaults_are_expected():
     assert params.case_type == "complex"
     assert params.enable_planning is False
     assert params.context_used != "dynamic"
+
+
+@pytest.mark.orchestration
+def test_agent_params_max_tokens_default_to_none():
+    params = AgentParams()
+
+    assert params.code_generator.max_tokens is None
+    assert params.reflector.max_tokens is None
+    assert params.query_translator.max_tokens is None
+    assert params.request_planner.max_tokens is None
+    assert params.precheck.general.max_tokens is None
+    assert params.precheck.security.max_tokens is None
+
+
+@pytest.mark.orchestration
+@pytest.mark.asyncio
+async def test_precheck_nodes_use_fallback_max_tokens_when_omitted():
+    state = {"user_prompt": "Check this request"}
+    config = _config(agent=AgentParams())
+
+    with patch(
+        "src.nodes.run_general_check",
+        new_callable=AsyncMock,
+        return_value={
+            "reasoning": "ok",
+            "relevant_to_notion_scope": True,
+            "complexity_label": "simple",
+            "request_type": "GET",
+        },
+    ) as mock_general, patch(
+        "src.nodes.run_llama_guard_check",
+        new_callable=AsyncMock,
+        return_value={
+            "is_safe": True,
+            "verdict": "safe",
+            "violations": [],
+            "raw": "safe",
+            "error": "",
+        },
+    ) as mock_security:
+        general_result = await precheck_general_node(state, config)
+        security_result = await precheck_security_node(state, config)
+
+    assert general_result["meta"]["reasoning"] == "ok"
+    assert security_result["security"]["verdict"] == "safe"
+    assert mock_general.await_args is not None
+    assert mock_general.await_args.kwargs["max_tokens"] == 700
+    assert mock_security.await_args is not None
+    assert mock_security.await_args.kwargs["max_tokens"] == 512
 
 
 @pytest.mark.orchestration

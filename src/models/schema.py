@@ -26,7 +26,7 @@ class CodeGeneratorParams(BaseModel):
 class ReflectorParams(BaseModel):
     model_name: str = "gemma27"
     model_temperature: float = 0.2
-    max_tokens: int = 1200
+    max_tokens: Optional[int] = None
 
     model_config = ConfigDict(frozen=True)
 
@@ -58,7 +58,7 @@ class RequestPlannerParams(BaseModel):
 class PrecheckGeneralParams(BaseModel):
     model_name: str = "gemma4"
     model_temperature: float = 0.0
-    max_tokens: int = 700
+    max_tokens: Optional[int] = None
 
     model_config = ConfigDict(frozen=True)
 
@@ -67,7 +67,7 @@ class PrecheckSecurityParams(BaseModel):
     model_name: str = "meta-llama/llama-guard-4-12b"
     base_url: str = "https://api.puter.com/puterai/openai/v1/"
     api_key_env: str = "POETRY_API_KEY"
-    max_tokens: int = 512
+    max_tokens: Optional[int] = None
 
     model_config = ConfigDict(frozen=True)
 
