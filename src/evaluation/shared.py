@@ -1,4 +1,5 @@
 import asyncio
+import json
 import warnings
 from typing import Any, Callable, Dict, List, Optional
 
@@ -9,6 +10,67 @@ from ..core.lifecycle import run_with_lifecycle
 from ..models.config import AppConfig
 from ..models.schema import AgentParams, PipelineParams, RagBuildConfig, StaticParams
 from .utils import StandardEvaluationSettings, _extract_execution_error, ensure_dataset, load_eval_tasks_or_raise
+
+
+class ExactMatchEvaluator:
+    """Exact-match evaluator for selected output keys against reference outputs."""
+
+    def __init__(self, keys_to_check: List[str], *, metric_key: str = "exact_match_score"):
+        self.keys_to_check = list(keys_to_check)
+        self.metric_key = metric_key
+
+    async def __call__(
+        self, *, inputs: Dict[str, Any], outputs: Dict[str, Any], reference_outputs: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        expected = reference_outputs if isinstance(reference_outputs, dict) else {}
+        predicted = outputs if isinstance(outputs, dict) else {}
+
+        checked = 0
+        matched = 0
+        details: List[Dict[str, Any]] = []
+
+        for key in self.keys_to_check:
+            if key not in expected:
+                details.append({"key": key, "expected": None, "predicted": predicted.get(key), "match": None, "checked": False})
+                continue
+
+            checked += 1
+            expected_value = expected.get(key)
+            predicted_value = predicted.get(key)
+            is_match = predicted_value == expected_value
+            if is_match:
+                matched += 1
+
+            details.append(
+                {
+                    "key": key,
+                    "expected": expected_value,
+                    "predicted": predicted_value,
+                    "match": is_match,
+                    "checked": True,
+                }
+            )
+
+        score = 1.0 if checked == 0 else matched / float(checked)
+        task_id = str(
+            predicted.get("task_id")
+            or expected.get("task_id")
+            or inputs.get("task_id")
+            or ""
+        ).strip()
+
+        return {
+            "key": self.metric_key,
+            "score": score,
+            "comment": json.dumps(
+                {
+                    "task_id": task_id,
+                    "checked": checked,
+                    "matched": matched,
+                    "details": details,
+                }
+            ),
+        }
 
 
 async def evaluation_orchestration(
@@ -94,13 +156,22 @@ def _resolve_live_task_payload(inputs: Dict[str, Any]) -> tuple[str, Dict[str, A
     input_state = inputs.get("input_state")
     if isinstance(input_state, dict):
         task_payload = dict(input_state)
+        # Keep flattened top-level input keys as well without overriding nested state keys.
+        for key, value in inputs.items():
+            if key not in {"input_state", "reference_outputs", "task_id"} and key not in task_payload:
+                task_payload[key] = value
         task_id = str(inputs.get("task_id") or task_payload.get("task_id") or "").strip()
         task_query = str(task_payload.get("query") or task_payload.get("user_prompt") or task_payload.get("task") or "").strip()
         return task_id, task_payload, task_query
 
-    task_id = str(inputs.get("task_id") or "").strip()
-    task_query = str(inputs.get("query") or inputs.get("user_prompt") or inputs.get("task") or "").strip()
-    return task_id, {"query": task_query}, task_query
+    task_payload = {
+        key: value
+        for key, value in inputs.items()
+        if key not in {"reference_outputs", "task_id"}
+    }
+    task_id = str(inputs.get("task_id") or task_payload.get("task_id") or "").strip()
+    task_query = str(task_payload.get("query") or task_payload.get("user_prompt") or task_payload.get("task") or "").strip()
+    return task_id, task_payload, task_query
 
 
 def make_live_eval_target(
@@ -160,6 +231,8 @@ def make_live_eval_target(
             "thread_id": thread_id,
             "retrieval_context": str(final_state.get("retrieval_context") or ""),
             "final_code": str(final_state.get("final_code") or final_state.get("generated_code") or ""),
+            "meta": final_state.get("meta") or {},
+            "security": final_state.get("security") or {},
             "execution": execution,
             "solution_run": execution,
             "execution_output": str(final_state.get("execution_output") or ""),
@@ -171,6 +244,7 @@ def make_live_eval_target(
 
 
 __all__ = [
+    "ExactMatchEvaluator",
     "evaluation_orchestration",
     "make_live_eval_target",
 ]

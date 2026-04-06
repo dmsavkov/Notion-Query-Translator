@@ -56,37 +56,62 @@ def test_load_eval_tasks(tmp_path):
 
 @pytest.mark.unit
 def test_load_eval_tasks_supports_batch_yaml_lists(tmp_path):
-        evals_dir = tmp_path / "evals"
-        evals_dir.mkdir()
+    evals_dir = tmp_path / "evals"
+    evals_dir.mkdir()
 
-        batch_yaml = evals_dir / "general_precheck_v1.yaml"
-        batch_yaml.write_text(
-            yaml.safe_dump(
-                [
-                    {
-                        "input_state": {"user_prompt": "Give me the latest tasks."},
-                        "reference_outputs": {
-                            "relevant_to_notion_scope": True,
-                            "complexity_label": "simple",
-                            "request_type": "GET",
-                        },
+    batch_yaml = evals_dir / "general_precheck_v1.yaml"
+    batch_yaml.write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "input_state": {"user_prompt": "Give me the latest tasks."},
+                    "reference_outputs": {
+                        "relevant_to_notion_scope": True,
+                        "complexity_label": "simple",
+                        "request_type": "GET",
                     },
-                    {
-                        "input_state": {"user_prompt": "What is Notion?"},
-                        "reference_outputs": {
-                            "relevant_to_notion_scope": False,
-                            "complexity_label": "UNKNOWN",
-                            "request_type": "UNKNOWN",
-                        },
+                },
+                {
+                    "input_state": {"user_prompt": "What is Notion?"},
+                    "reference_outputs": {
+                        "relevant_to_notion_scope": False,
+                        "complexity_label": "UNKNOWN",
+                        "request_type": "UNKNOWN",
                     },
-                ],
-                sort_keys=False,
-            ),
-            encoding="utf-8",
-        )
+                },
+            ],
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
 
-        loaded = load_eval_tasks(evals_dir=str(evals_dir), case_type="simple")
+    loaded = load_eval_tasks(evals_dir=str(evals_dir), case_type="simple")
 
-        assert list(loaded.keys()) == ["general_precheck_v1__01", "general_precheck_v1__02"]
-        assert loaded["general_precheck_v1__01"]["input_state"]["user_prompt"] == "Give me the latest tasks."
-        assert loaded["general_precheck_v1__01"]["reference_outputs"]["relevant_to_notion_scope"] is True
+    assert list(loaded.keys()) == ["general_precheck_v1__01", "general_precheck_v1__02"]
+    assert loaded["general_precheck_v1__01"]["input_state"]["user_prompt"] == "Give me the latest tasks."
+    assert loaded["general_precheck_v1__01"]["reference_outputs"]["relevant_to_notion_scope"] is True
+
+
+@pytest.mark.unit
+def test_load_eval_tasks_supports_file_path(tmp_path):
+    evals_root = tmp_path / "evals"
+    precheck_dir = evals_root / "precheck"
+    precheck_dir.mkdir(parents=True)
+    batch_yaml = precheck_dir / "security_precheck_v1.yaml"
+    batch_yaml.write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "input_state": {"user_prompt": "Fetch my tasks."},
+                    "reference_outputs": {"is_safe": True},
+                }
+            ],
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_eval_tasks(evals_dir=str(evals_root), case_type="precheck/security_precheck_v1.yaml")
+
+    assert list(loaded.keys()) == ["security_precheck_v1__01"]
+    assert loaded["security_precheck_v1__01"]["reference_outputs"]["is_safe"] is True

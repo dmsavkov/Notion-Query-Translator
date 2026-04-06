@@ -1,9 +1,10 @@
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Optional
 
 from langsmith import Client
 from pydantic import BaseModel, ConfigDict
 
 from ..all_functionality import load_eval_tasks
+from ..models.schema import generate_default_state
 
 
 class StandardEvaluationSettings(BaseModel):
@@ -11,7 +12,7 @@ class StandardEvaluationSettings(BaseModel):
 
     experiment_prefix: str = "E2E Evaluation"
     dataset_name: str = "Dataset v4."
-    evals_case_type: Literal["simple", "complex", "all"] = "complex"
+    evals_case_type: str = "complex"
     eval_max_concurrency: int = 5
     run_error_analysis_after_eval: bool = True
     evals_dir: str = "evals"
@@ -63,6 +64,39 @@ def build_reference_outputs(task_id: str, task_spec: Dict[str, Any]) -> Dict[str
     return reference_outputs
 
 
+def build_node_eval_state(inputs: Dict[str, Any], *, default_task_id: str = "") -> Dict[str, Any]:
+    """Build a node-ready state dict from LangSmith inputs.
+
+    This normalizes either a nested `input_state` payload or flat key-value
+    inputs into the standard graph state used by node-level evaluations.
+    """
+    state = dict(generate_default_state())
+
+    input_state = inputs.get("input_state")
+    if isinstance(input_state, dict):
+        state.update(dict(input_state))
+    else:
+        state.update({k: v for k, v in inputs.items() if k != "reference_outputs"})
+
+    task_id = str(inputs.get("task_id") or state.get("task_id") or default_task_id).strip() or default_task_id
+    if task_id:
+        state["task_id"] = task_id
+
+    user_prompt = str(
+        state.get("user_prompt")
+        or state.get("query")
+        or state.get("task")
+        or inputs.get("user_prompt")
+        or inputs.get("query")
+        or inputs.get("task")
+        or ""
+    ).strip()
+    if user_prompt:
+        state["user_prompt"] = user_prompt
+
+    return state
+
+
 def _get_value(source: Any, key: str, default: Any = None) -> Any:
     if isinstance(source, dict):
         return source.get(key, default)
@@ -95,8 +129,8 @@ def load_eval_tasks_or_raise(settings: StandardEvaluationSettings) -> Dict[str, 
     task_specs = load_eval_tasks(settings.evals_dir, case_type=settings.evals_case_type)
     if not task_specs:
         raise ValueError(
-            f"No evaluation tasks loaded for case_type='{settings.evals_case_type}'. "
-            "Check evals directory and case filters."
+            f"No evaluation tasks loaded for selector='{settings.evals_case_type}'. "
+            "Check evals root, file path, folder name, and selector filters."
         )
     return task_specs
 
@@ -132,11 +166,16 @@ def ensure_dataset(client: Client, dataset_name: str, task_specs: Dict[str, Dict
 
         inputs = {
             "task_id": task_id,
-            "query": extract_task_prompt(task_spec),
         }
         input_state = task_spec.get("input_state")
         if isinstance(input_state, dict):
-            inputs["input_state"] = input_state
+            for key, value in input_state.items():
+                if key != "task_id":
+                    inputs[key] = value
+
+        prompt = extract_task_prompt(task_spec)
+        if prompt and not any(str(inputs.get(k) or "").strip() for k in ("query", "user_prompt", "task")):
+            inputs["query"] = prompt
 
         client.create_example(
             inputs=inputs,
@@ -208,6 +247,7 @@ __all__ = [
     "StandardEvaluationSettings",
     "_extract_execution_error",
     "_get_value",
+    "build_node_eval_state",
     "_synthesize_eval_context",
     "build_reference_outputs",
     "ensure_dataset",

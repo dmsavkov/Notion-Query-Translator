@@ -1,12 +1,19 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+import json
 
 import pytest
+import yaml
 
-from src.evaluation.shared import evaluation_orchestration, make_live_eval_target
+from src.evaluation.shared import (
+    ExactMatchEvaluator,
+    evaluation_orchestration,
+    make_live_eval_target,
+)
 from src.evaluation.utils import (
     StandardEvaluationSettings,
     _extract_execution_error,
+    build_node_eval_state,
     build_reference_outputs,
     ensure_dataset,
     extract_task_prompt,
@@ -29,6 +36,52 @@ class _AsyncIterator:
         value = self._rows[self._index]
         self._index += 1
         return value
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_exact_match_evaluator_compares_only_available_reference_keys():
+    evaluator = ExactMatchEvaluator(keys_to_check=["is_safe", "complexity_label"], metric_key="exact_test")
+
+    result = await evaluator(
+        inputs={"task_id": "task-1"},
+        outputs={"task_id": "task-1", "is_safe": True, "complexity_label": "simple"},
+        reference_outputs={"task_id": "task-1", "is_safe": True},
+    )
+
+    assert result["key"] == "exact_test"
+    assert result["score"] == 1.0
+    details = json.loads(result["comment"])
+    assert details["task_id"] == "task-1"
+    assert details["checked"] == 1
+    assert details["matched"] == 1
+
+
+@pytest.mark.unit
+def test_build_node_eval_state_uses_nested_input_state():
+    state = build_node_eval_state(
+        {
+            "task_id": "task-1",
+            "input_state": {
+                "user_prompt": "Nested prompt",
+                "notes": "keep",
+            },
+            "reference_outputs": {"is_safe": True},
+        }
+    )
+
+    assert state["task_id"] == "task-1"
+    assert state["user_prompt"] == "Nested prompt"
+    assert state["notes"] == "keep"
+
+
+@pytest.mark.unit
+def test_build_node_eval_state_uses_flat_inputs_when_input_state_missing():
+    state = build_node_eval_state({"task_id": "task-2", "query": "Flat prompt", "flag": True})
+
+    assert state["task_id"] == "task-2"
+    assert state["user_prompt"] == "Flat prompt"
+    assert state["flag"] is True
 
 
 @pytest.mark.unit
@@ -128,6 +181,68 @@ def test_ensure_dataset_creates_missing_examples_only():
     assert kwargs["dataset_id"] == "ds_1"
     assert kwargs["inputs"] == {"task_id": "task_2", "query": "create me"}
     assert kwargs["outputs"]["task_id"] == "task_2"
+
+
+@pytest.mark.unit
+def test_ensure_dataset_flattens_input_state_into_langsmith_inputs():
+    dataset = SimpleNamespace(id="ds_2", name="Dataset flat")
+
+    client = MagicMock()
+    client.list_datasets.return_value = [dataset]
+    client.list_examples.return_value = []
+
+    task_specs = {
+        "task_nested": {
+            "input_state": {
+                "user_prompt": "nested prompt",
+                "custom_flag": True,
+            },
+            "reference_outputs": {"is_safe": True},
+        }
+    }
+
+    out_dataset = ensure_dataset(client, "Dataset flat", task_specs)
+
+    assert out_dataset is dataset
+    client.create_example.assert_called_once()
+    kwargs = client.create_example.call_args.kwargs
+    assert kwargs["inputs"] == {
+        "task_id": "task_nested",
+        "user_prompt": "nested prompt",
+        "custom_flag": True,
+    }
+
+
+@pytest.mark.unit
+def test_load_eval_tasks_or_raise_supports_selector_file_path(tmp_path):
+    evals_root = tmp_path / "evals"
+    precheck_dir = evals_root / "precheck"
+    precheck_dir.mkdir(parents=True)
+    (precheck_dir / "general_precheck_v1.yaml").write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "input_state": {"user_prompt": "Selector prompt"},
+                    "reference_outputs": {
+                        "relevant_to_notion_scope": True,
+                        "complexity_label": "simple",
+                        "request_type": "GET",
+                    },
+                }
+            ],
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    settings = StandardEvaluationSettings(
+        evals_dir=str(evals_root),
+        evals_case_type="precheck/general_precheck_v1.yaml",
+        provision_infrastructure=False,
+    )
+
+    tasks = load_eval_tasks_or_raise(settings)
+    assert list(tasks.keys()) == ["general_precheck_v1__01"]
 
 
 @pytest.mark.unit

@@ -1,5 +1,9 @@
 from .sandbox import flash_sandbox_databases, provision_infrastructure
-from .shared import evaluation_orchestration, make_live_eval_target
+from .shared import (
+	ExactMatchEvaluator,
+	evaluation_orchestration,
+	make_live_eval_target,
+)
 from .utils import (
 	EvaluationSettings,
 	StandardEvaluationSettings,
@@ -21,6 +25,7 @@ __all__ = [
 	"build_reference_outputs",
 	"ensure_dataset",
 	"evaluation_orchestration",
+	"ExactMatchEvaluator",
 	"extract_task_prompt",
 	"flash_sandbox_databases",
 	"load_eval_tasks_or_raise",

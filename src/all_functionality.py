@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 def load_eval_tasks(
     evals_dir: str = "evals",
-    case_type: Literal["simple", "complex", "all"] = "simple"
+    case_type: str = "simple"
 ) -> Dict[str, Dict[str, Any]]:
     """
     Load evaluation tasks from YAML files.
@@ -49,13 +49,36 @@ def load_eval_tasks(
         YAML files may contain either a single mapping or a list of mappings.
     """
     tasks: Dict[str, Dict[str, Any]] = {}
-    
-    glob_patterns = []
-    if case_type in ("simple", "all"):
-        glob_patterns.append(os.path.join(evals_dir, "*.yaml"))
-    if case_type in ("complex", "all"):
-        glob_patterns.append(os.path.join(evals_dir, "complex", "*.yaml"))
-    
+
+    selector = str(case_type or "").strip()
+    glob_patterns: List[str] = []
+
+    if selector in {"simple", "complex", "all"}:
+        if selector in ("simple", "all"):
+            glob_patterns.append(os.path.join(evals_dir, "*.yaml"))
+        if selector in ("complex", "all"):
+            glob_patterns.append(os.path.join(evals_dir, "complex", "*.yaml"))
+    else:
+        selector_path = Path(selector)
+        resolved_selector_path = selector_path if selector_path.is_absolute() else Path(evals_dir) / selector_path
+
+        if selector_path.is_file() or resolved_selector_path.is_file():
+            file_path = selector_path if selector_path.is_file() else resolved_selector_path
+            glob_patterns.append(str(file_path))
+        elif selector_path.is_dir() or resolved_selector_path.is_dir():
+            dir_path = selector_path if selector_path.is_dir() else resolved_selector_path
+            glob_patterns.extend([str(dir_path / "*.yaml"), str(dir_path / "*.yml")])
+        elif selector:
+            glob_patterns.extend(
+                [
+                    str(resolved_selector_path),
+                    str(resolved_selector_path.with_suffix(".yaml")),
+                    str(resolved_selector_path.with_suffix(".yml")),
+                    str(resolved_selector_path / "*.yaml"),
+                    str(resolved_selector_path / "*.yml"),
+                ]
+            )
+
     for pattern in glob_patterns:
         for yaml_path in sorted(glob.glob(pattern)):
             stem = Path(yaml_path).stem
