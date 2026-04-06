@@ -330,7 +330,7 @@ def _extract_message_content_or_raise(response: Any, model_name: str) -> str:
 
 async def async_chat_wrapper(
     messages: list[Dict[str, str]],
-    max_tokens: int = 2048,
+    max_tokens: Optional[int] = 2048,
     temperature: float = 1.0,
     json_output: bool = False,
     model_size: str = "gemma27",
@@ -343,7 +343,7 @@ async def async_chat_wrapper(
     msgs = list(messages)
     
     # Add concision instruction to encourage self-restriction rather than hard cutoff
-    if max_tokens and max_tokens > 0:
+    if max_tokens is not None and max_tokens > 0:
         concision_instruction = build_concision_prompt(max_tokens)
         msgs.append({"role": "user", "content": concision_instruction})
     

@@ -32,11 +32,37 @@ async def test_async_chat_wrapper_passes_temperature_and_adds_concision_prompt()
         )
 
     assert result == "hello"
-    call_kwargs = create_mock.await_args.kwargs
+    call_args = create_mock.await_args
+    assert call_args is not None
+    call_kwargs = call_args.kwargs
     assert call_kwargs["temperature"] == 0.42
     assert call_kwargs["model"] == "gemma-3-4b-it"
     assert len(call_kwargs["messages"]) == 2
     assert "UNDER 321 words" in call_kwargs["messages"][1]["content"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_async_chat_wrapper_accepts_none_max_tokens_without_concision_prompt():
+    messages = [{"role": "user", "content": "Say hello"}]
+    create_mock = AsyncMock(return_value=_mock_response("hello"))
+
+    with patch("src.all_functionality._async_client.chat.completions.create", create_mock):
+        result = await async_chat_wrapper(
+            messages=messages,
+            max_tokens=None,
+            temperature=0.42,
+            json_output=False,
+            model_size="gemma4",
+        )
+
+    assert result == "hello"
+    call_args = create_mock.await_args
+    assert call_args is not None
+    call_kwargs = call_args.kwargs
+    assert call_kwargs["temperature"] == 0.42
+    assert call_kwargs["model"] == "gemma-3-4b-it"
+    assert len(call_kwargs["messages"]) == 1
 
 
 @pytest.mark.unit
@@ -55,7 +81,9 @@ async def test_async_chat_wrapper_json_mode_non_gemini_adds_json_instruction():
         )
 
     assert result == {"ok": True}
-    call_kwargs = create_mock.await_args.kwargs
+    call_args = create_mock.await_args
+    assert call_args is not None
+    call_kwargs = call_args.kwargs
     assert call_kwargs["temperature"] == 0.31
     assert len(call_kwargs["messages"]) == 3
     assert "UNDER 150 words" in call_kwargs["messages"][1]["content"]

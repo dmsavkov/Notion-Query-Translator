@@ -183,7 +183,7 @@ def test_agent_params_max_tokens_default_to_none():
 
 @pytest.mark.orchestration
 @pytest.mark.asyncio
-async def test_precheck_nodes_use_fallback_max_tokens_when_omitted():
+async def test_precheck_nodes_pass_through_none_max_tokens():
     state = {"user_prompt": "Check this request"}
     config = _config(agent=AgentParams())
 
@@ -213,9 +213,9 @@ async def test_precheck_nodes_use_fallback_max_tokens_when_omitted():
     assert general_result["meta"]["reasoning"] == "ok"
     assert security_result["security"]["verdict"] == "safe"
     assert mock_general.await_args is not None
-    assert mock_general.await_args.kwargs["max_tokens"] == 700
+    assert mock_general.await_args.kwargs["max_tokens"] is None
     assert mock_security.await_args is not None
-    assert mock_security.await_args.kwargs["max_tokens"] == 512
+    assert mock_security.await_args.kwargs["max_tokens"] is None
 
 
 @pytest.mark.orchestration

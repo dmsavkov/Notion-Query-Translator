@@ -1,7 +1,7 @@
 """Input guardrail helpers for first-entry request checks."""
 
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, cast
 
 import openai
 
@@ -81,12 +81,12 @@ async def run_general_check(
     *,
     model_name: str = "gemma4",
     model_temperature: float = 0.0,
-    max_tokens: int = 700,
+    max_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
     prompt = build_general_check_prompt(query)
     raw_response = await async_chat_wrapper(
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=max_tokens,
+        max_tokens=cast(Any, max_tokens),
         temperature=model_temperature,
         json_output=False,
         model_size=model_name,
@@ -136,7 +136,7 @@ async def run_llama_guard_check(
     model_name: str = "meta-llama/llama-guard-4-12b",
     base_url: str = "https://api.puter.com/puterai/openai/v1/",
     api_key_env: str = "POETRY_API_KEY",
-    max_tokens: int = 512,
+    max_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
     api_key = _get_poetry_api_key(api_key_env)
     if not api_key:

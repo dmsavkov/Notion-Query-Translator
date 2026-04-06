@@ -63,7 +63,7 @@ async def precheck_general_node(state: Dict[str, Any], config: RunnableConfig) -
         query=user_prompt,
         model_name=str(precheck_params.general.model_name),
         model_temperature=float(precheck_params.general.model_temperature),
-        max_tokens=int(precheck_params.general.max_tokens),
+        max_tokens=precheck_params.general.max_tokens,
     )
     return {"meta": meta}
 
@@ -89,7 +89,7 @@ async def precheck_security_node(state: Dict[str, Any], config: RunnableConfig) 
         model_name=str(precheck_params.security.model_name),
         base_url=str(precheck_params.security.base_url),
         api_key_env=str(precheck_params.security.api_key_env),
-        max_tokens=int(precheck_params.security.max_tokens),
+        max_tokens=precheck_params.security.max_tokens,
     )
     return {"security": security}
 
