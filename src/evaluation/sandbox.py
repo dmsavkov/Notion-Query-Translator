@@ -276,8 +276,8 @@ NOTION_PROJECTS_DATA_SOURCE_ID={db_ids['projects']}
 NOTION_TASKS_DATABASE_ID={db_ids['tasks']}
 NOTION_TASKS_DATA_SOURCE_ID={db_ids['tasks']}
 NOTION_INBOX_PAGE_ID={page_ids['inbox']}
-ID_PROJECT_PAGE_ID={page_ids['id_project']}
-ID_UPDATE_PAGE_ID={page_ids['id_update']}
+NOTION_ID_PROJECT_PAGE_ID={page_ids['id_project']}
+NOTION_ID_UPDATE_PAGE_ID={page_ids['id_update']}
 
 # Google API Configuration
 GOOGLE_API_KEY={os.environ.get("GOOGLE_API_KEY", "your_google_api_key_here")}
@@ -347,8 +347,8 @@ def flash_sandbox_databases() -> dict:
         db_ids={"projects": projects_db_id, "tasks": tasks_db_id},
         page_ids={
             "inbox": inbox_page_id,
-            "id_project": os.environ.get("ID_PROJECT_PAGE_ID", ""),
-            "id_update": os.environ.get("ID_UPDATE_PAGE_ID", ""),
+            "id_project": os.environ.get("NOTION_ID_PROJECT_PAGE_ID", ""),
+            "id_update": os.environ.get("NOTION_ID_UPDATE_PAGE_ID", ""),
         },
     )
     print("Sandbox flash complete.")

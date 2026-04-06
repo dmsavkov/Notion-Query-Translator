@@ -1,9 +1,9 @@
-task: Add a new task into my Notion Tasks database with the title "Add_task_test", date today, importance of 4 and project ID from the ID_PROJECT_PAGE_ID environment variable.
+task: Add a new task into my Notion Tasks database with the title "Add_task_test", date today, importance of 4 and project ID from the NOTION_ID_PROJECT_PAGE_ID environment variable.
 properties:
   title: "Add_task_test"
   date: "today"
   importance: 4
-  project_id: "${ID_PROJECT_PAGE_ID}"
+  project_id: "${NOTION_ID_PROJECT_PAGE_ID}"
 
 solution: |
   def add_new_task(database_id, title, importance):
@@ -14,7 +14,7 @@ solution: |
       
       load_dotenv()
       NOTION_TOKEN = os.getenv("NOTION_TOKEN")
-      project_id = os.getenv("ID_PROJECT_PAGE_ID")
+      project_id = os.getenv("NOTION_ID_PROJECT_PAGE_ID")
       HEADERS = {
           "Authorization": f"Bearer {NOTION_TOKEN}",
           "Content-Type": "application/json",

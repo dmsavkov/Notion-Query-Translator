@@ -176,7 +176,7 @@ Simple evaluations test single, focused operations or straightforward API calls 
 
 **Task Details:**
 
-- Target Page ID: From ID_UPDATE_PAGE_ID environment variable
+- Target Page ID: From NOTION_ID_UPDATE_PAGE_ID environment variable
 - New Status: "Done" (select property)
 - Due Date Action: Clear (set to null)
 

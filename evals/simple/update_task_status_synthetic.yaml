@@ -1,7 +1,7 @@
 # update task status to completed and clearing date
-task: Update the task with id from the ID_UPDATE_PAGE_ID environment variable by changing its "Status" to "Done" and clearing the date.
+task: Update the task with id from the NOTION_ID_UPDATE_PAGE_ID environment variable by changing its "Status" to "Done" and clearing the date.
 properties:
-  page_id: "${ID_UPDATE_PAGE_ID}"
+  page_id: "${NOTION_ID_UPDATE_PAGE_ID}"
   status: "Done"
   due_date: null
 
@@ -13,7 +13,7 @@ solution: |
       
       load_dotenv()
       NOTION_TOKEN = os.getenv("NOTION_TOKEN")
-      page_id = os.getenv("ID_UPDATE_PAGE_ID")
+      page_id = os.getenv("NOTION_ID_UPDATE_PAGE_ID")
       HEADERS = {
           "Authorization": f"Bearer {NOTION_TOKEN}",
           "Content-Type": "application/json",
