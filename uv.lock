@@ -46,6 +46,15 @@ wheels = [
 ]
 
 [[package]]
+name = "attrs"
+version = "26.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9a/8e/82a0fe20a541c03148528be8cac2408564a6c9a0cc7e9171802bc1d26985/attrs-26.1.0.tar.gz", hash = "sha256:d03ceb89cb322a8fd706d4fb91940737b6642aa36998fe130a9bc96c985eff32", size = 952055, upload-time = "2026-03-19T14:22:25.026Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/64/b4/17d4b0b2a2dc85a6df63d1157e028ed19f90d4cd97c36717afef2bc2f395/attrs-26.1.0-py3-none-any.whl", hash = "sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309", size = 67548, upload-time = "2026-03-19T14:22:23.645Z" },
+]
+
+[[package]]
 name = "beautifulsoup4"
 version = "4.14.3"
 source = { registry = "https://pypi.org/simple" }
@@ -68,6 +77,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/55/e0/dcbab602790a576b0b94108c07e2c048e5897df7cc83722a89582d733987/blockbuster-1.5.26.tar.gz", hash = "sha256:cc3ce8c70fa852a97ee3411155f31e4ad2665cd1c6c7d2f8bb1851dab61dc629", size = 36085, upload-time = "2025-12-05T10:43:47.735Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/95/c1/84fc6811122f54b20de2e5afb312ee07a3a47a328755587d1e505475239b/blockbuster-1.5.26-py3-none-any.whl", hash = "sha256:f8e53fb2dd4b6c6ec2f04907ddbd063ca7cd1ef587d24448ef4e50e81e3a79bb", size = 13226, upload-time = "2025-12-05T10:43:48.778Z" },
+]
+
+[[package]]
+name = "bracex"
+version = "2.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/63/9a/fec38644694abfaaeca2798b58e276a8e61de49e2e37494ace423395febc/bracex-2.6.tar.gz", hash = "sha256:98f1347cd77e22ee8d967a30ad4e310b233f7754dbf31ff3fceb76145ba47dc7", size = 26642, upload-time = "2025-06-22T19:12:31.254Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9d/2a/9186535ce58db529927f6cf5990a849aa9e052eea3e2cfefe20b9e1802da/bracex-2.6-py3-none-any.whl", hash = "sha256:0b0049264e7340b3ec782b5cb99beb325f36c3782a32e36e876452fd49a09952", size = 11508, upload-time = "2025-06-22T19:12:29.781Z" },
 ]
 
 [[package]]
@@ -439,6 +457,50 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/fc/f8/98eea607f65de6527f8a2e8885fc8015d3e6f5775df186e443e0964a11c3/distro-1.9.0.tar.gz", hash = "sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed", size = 60722, upload-time = "2023-12-24T09:54:32.31Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2", size = 20277, upload-time = "2023-12-24T09:54:30.421Z" },
+]
+
+[[package]]
+name = "dockerfile-parse"
+version = "2.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/92/df/929ee0b5d2c8bd8d713c45e71b94ab57c7e11e322130724d54f469b2cd48/dockerfile-parse-2.0.1.tar.gz", hash = "sha256:3184ccdc513221983e503ac00e1aa504a2aa8f84e5de673c46b0b6eee99ec7bc", size = 24556, upload-time = "2023-07-18T13:36:07.897Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7a/6c/79cd5bc1b880d8c1a9a5550aa8dacd57353fa3bb2457227e1fb47383eb49/dockerfile_parse-2.0.1-py2.py3-none-any.whl", hash = "sha256:bdffd126d2eb26acf1066acb54cb2e336682e1d72b974a40894fac76a4df17f6", size = 14845, upload-time = "2023-07-18T13:36:06.052Z" },
+]
+
+[[package]]
+name = "e2b"
+version = "2.20.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "dockerfile-parse" },
+    { name = "httpcore" },
+    { name = "httpx" },
+    { name = "packaging" },
+    { name = "protobuf" },
+    { name = "python-dateutil" },
+    { name = "rich" },
+    { name = "typing-extensions" },
+    { name = "wcmatch" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8c/87/e9b3bd252a4fe2b3fd6967ff985c7a5a15a31b2d5b8c37e50afb18797b17/e2b-2.20.0.tar.gz", hash = "sha256:52b3a00ac7015bbdce84913b2a57664d2def33d5a4069e34fa2354de31759173", size = 156575, upload-time = "2026-04-02T19:20:32.375Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c2/ce/e402e2ecebe40ed9af20cddb862386f2ce20336e35c0dea257812129020e/e2b-2.20.0-py3-none-any.whl", hash = "sha256:66f6edcf6b742ca180f3aadcff7966fda86d68430fa6b2becdfa0fcc72224988", size = 296483, upload-time = "2026-04-02T19:20:30.573Z" },
+]
+
+[[package]]
+name = "e2b-code-interpreter"
+version = "2.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "e2b" },
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cf/dd/f90b56d1597abfcdabdc018ac184fa714066be93d24b97edc2bf0671d483/e2b_code_interpreter-2.6.0.tar.gz", hash = "sha256:67e66531e5cf65c9df6e82aa0bdb1e73223a1ab205f10d47c027eb2ea09b73f9", size = 10683, upload-time = "2026-03-23T17:01:07.327Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6b/79/f70d50604584df66064892f3fca7ab57b10ad40c826fd003be53a4cd5fa5/e2b_code_interpreter-2.6.0-py3-none-any.whl", hash = "sha256:a15f1d155566aef98cf2ccc0f8d9b07d15e07582d6cc8a128bc97de371bd617c", size = 13715, upload-time = "2026-03-23T17:01:06.111Z" },
 ]
 
 [[package]]
@@ -1318,6 +1380,7 @@ source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "chonkie" },
+    { name = "e2b-code-interpreter" },
     { name = "fastembed" },
     { name = "json-repair" },
     { name = "langchain-core" },
@@ -1352,6 +1415,7 @@ dev = [
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.14.3" },
     { name = "chonkie", specifier = ">=1.5.6" },
+    { name = "e2b-code-interpreter", specifier = ">=2.4.1" },
     { name = "fastembed", specifier = ">=0.7.4" },
     { name = "json-repair", specifier = ">=0.58.6" },
     { name = "langchain-core", specifier = ">=1.2.17" },
@@ -2357,6 +2421,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/4f/55/2af26693fd15165c4ff7857e38330e1b61ab8c37d15dc79118cdba115b7a/watchfiles-1.1.1-cp314-cp314t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8c91ed27800188c2ae96d16e3149f199d62f86c7af5f5f4d2c61a3ed8cd3666c", size = 455072, upload-time = "2025-10-14T15:05:48.928Z" },
     { url = "https://files.pythonhosted.org/packages/66/1d/d0d200b10c9311ec25d2273f8aad8c3ef7cc7ea11808022501811208a750/watchfiles-1.1.1-cp314-cp314t-musllinux_1_1_aarch64.whl", hash = "sha256:311ff15a0bae3714ffb603e6ba6dbfba4065ab60865d15a6ec544133bdb21099", size = 629104, upload-time = "2025-10-14T15:05:49.908Z" },
     { url = "https://files.pythonhosted.org/packages/e3/bd/fa9bb053192491b3867ba07d2343d9f2252e00811567d30ae8d0f78136fe/watchfiles-1.1.1-cp314-cp314t-musllinux_1_1_x86_64.whl", hash = "sha256:a916a2932da8f8ab582f242c065f5c81bed3462849ca79ee357dd9551b0e9b01", size = 622112, upload-time = "2025-10-14T15:05:50.941Z" },
+]
+
+[[package]]
+name = "wcmatch"
+version = "10.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "bracex" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/79/3e/c0bdc27cf06f4e47680bd5803a07cb3dfd17de84cde92dd217dcb9e05253/wcmatch-10.1.tar.gz", hash = "sha256:f11f94208c8c8484a16f4f48638a85d771d9513f4ab3f37595978801cb9465af", size = 117421, upload-time = "2025-06-22T19:14:02.49Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/eb/d8/0d1d2e9d3fabcf5d6840362adcf05f8cf3cd06a73358140c3a97189238ae/wcmatch-10.1-py3-none-any.whl", hash = "sha256:5848ace7dbb0476e5e55ab63c6bbd529745089343427caa5537f230cc01beb8a", size = 39854, upload-time = "2025-06-22T19:14:00.978Z" },
 ]
 
 [[package]]
