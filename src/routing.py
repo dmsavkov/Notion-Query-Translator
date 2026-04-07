@@ -20,10 +20,11 @@ def route_after_precheck(state: PipelineState, config: RunnableConfig) -> str:
         return "retrieve"
     return "malovolent_request"
 
-
-def route_after_execute(state: PipelineState, config: RunnableConfig) -> str:
+def route_after_egress(state: PipelineState, config: RunnableConfig) -> str:
     pipeline_params = config.get("configurable", {}).get("pipeline_params")
-    if str(state.get("terminal_status") or "") == "max_retries_exceeded" or bool(getattr(pipeline_params, "minimal", False)):
+    if str(state.get("terminal_status") or "") in {"security_blocked", "max_retries_exceeded"}:
+        return END
+    if bool(getattr(pipeline_params, "minimal", False)):
         return END
     return "reflect"
 

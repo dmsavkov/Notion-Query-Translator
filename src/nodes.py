@@ -277,6 +277,22 @@ async def execute_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
     return await execute_local_node(state, config)
 
 
+async def egress_security_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    output_text = str(state.get("execution_output") or "")
+    pipeline_params = config.get("configurable", {}).get("pipeline_params")
+    egress_checked_tokens = list(getattr(pipeline_params, "egress_checked_tokens", []) or [])
+
+    for env_name in egress_checked_tokens:
+        token_value = os.getenv(str(env_name), "")
+        if token_value and token_value in output_text:
+            return {
+                "execution_output": "[SECURITY OVERRIDE - OUTPUT DELETED]",
+                "terminal_status": "security_blocked",
+            }
+
+    return {}
+
+
 async def reflect_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
     assert state.get("general_info"), "Missing 'general_info' in state before reflection."
     assert "generated_code" in state, "Missing 'generated_code' key in state before reflection."

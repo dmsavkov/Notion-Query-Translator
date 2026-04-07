@@ -15,6 +15,7 @@ from src.models.schema import (
 )
 from src.nodes import (
     codegen_node,
+    egress_security_node,
     execute_node,
     execute_sandbox_node,
     plan_node,
@@ -23,7 +24,8 @@ from src.nodes import (
     reflect_node,
     retrieve_node,
 )
-from src.routing import route_after_codegen, route_after_execute, route_after_reflect
+from src.routing import route_after_codegen, route_after_egress, route_after_reflect
+from src.routing import route_after_execute
 from src.utils.execution_utils import ExecutionResult
 
 
@@ -69,19 +71,29 @@ def test_route_after_codegen():
     config_sandbox = _config(pipeline=PipelineParams(execution_method="sandbox"))
     assert route_after_codegen(cast(Any, {}), config_sandbox) == "execute_sandbox"
 
+
 @pytest.mark.orchestration
-def test_route_after_execute():
+def test_route_after_execute_routes_to_egress():
+    config = _config(pipeline=PipelineParams(minimal=True))
+    assert route_after_execute(cast(Any, {}), config) == "egress_security"
+
+@pytest.mark.orchestration
+def test_route_after_egress():
+    blocked_state = cast(Any, {"terminal_status": "security_blocked"})
+    config_blocked = _config(pipeline=PipelineParams(minimal=False))
+    assert route_after_egress(blocked_state, config_blocked) == "__end__"
+
     timeout_state = cast(Any, {"terminal_status": "max_retries_exceeded"})
     config_timeout = _config(pipeline=PipelineParams(minimal=False))
-    assert route_after_execute(timeout_state, config_timeout) == "__end__"
+    assert route_after_egress(timeout_state, config_timeout) == "__end__"
 
-    # Minimal mode: end after execute
+    # Minimal mode: end after egress
     config_min = _config(pipeline=PipelineParams(minimal=True))
-    assert route_after_execute(cast(Any, {}), config_min) == "__end__"
+    assert route_after_egress(cast(Any, {}), config_min) == "__end__"
 
     # Full mode: continue to reflect
     config_full = _config(pipeline=PipelineParams(minimal=False))
-    assert route_after_execute(cast(Any, {}), config_full) == "reflect"
+    assert route_after_egress(cast(Any, {}), config_full) == "reflect"
 
 @pytest.mark.orchestration
 def test_route_after_reflect():
@@ -194,6 +206,12 @@ def test_static_params_defaults_are_expected():
     assert params.case_type == "complex"
     assert params.enable_planning is False
     assert params.context_used != "dynamic"
+
+
+@pytest.mark.orchestration
+def test_pipeline_params_default_egress_tokens_are_expected():
+    params = PipelineParams()
+    assert params.egress_checked_tokens == ["NOTION_TOKEN"]
 
 
 @pytest.mark.orchestration
@@ -508,6 +526,26 @@ async def test_execute_sandbox_node_sets_max_retries_for_timeout():
     mock_create.assert_called_once()
     mock_run.assert_called_once()
     sandbox.kill.assert_called_once()
+
+
+@pytest.mark.orchestration
+@pytest.mark.asyncio
+async def test_egress_security_node_blocks_when_token_leaks_to_output():
+    config = _config(pipeline=PipelineParams(egress_checked_tokens=["NOTION_TOKEN"]))
+
+    with patch.dict("os.environ", {"NOTION_TOKEN": "secret-notion-token"}, clear=False):
+        blocked = await egress_security_node(
+            {"execution_output": "leaked=secret-notion-token"},
+            config,
+        )
+        clean = await egress_security_node(
+            {"execution_output": "all clear"},
+            config,
+        )
+
+    assert blocked["terminal_status"] == "security_blocked"
+    assert blocked["execution_output"] == "[SECURITY OVERRIDE - OUTPUT DELETED]"
+    assert clean == {}
 
 
 @pytest.mark.orchestration

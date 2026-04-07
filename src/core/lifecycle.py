@@ -9,6 +9,7 @@ from ..models.schema import PipelineState
 from ..utils.execution_utils import generate_thread_id
 from ..nodes import (
     codegen_node,
+    egress_security_node,
     execute_local_node,
     execute_sandbox_node,
     malovolent_request_node,
@@ -21,7 +22,7 @@ from ..nodes import (
 )
 from ..routing import (
     route_after_codegen,
-    route_after_execute,
+    route_after_egress,
     route_after_precheck,
     route_after_reflect,
 )
@@ -40,6 +41,7 @@ def build_pipeline() -> StateGraph:
     graph.add_node("codegen", cast(Any, codegen_node))
     graph.add_node("execute_local", cast(Any, execute_local_node))
     graph.add_node("execute_sandbox", cast(Any, execute_sandbox_node))
+    graph.add_node("egress_security", cast(Any, egress_security_node))
     graph.add_node("reflect", cast(Any, reflect_node))
 
     graph.add_edge(START, "precheck_general")
@@ -56,6 +58,7 @@ def build_pipeline() -> StateGraph:
     graph.add_edge("malovolent_request", END)
     graph.add_edge("retrieve", "plan")
     graph.add_edge("plan", "codegen")
+    graph.add_edge(["execute_local", "execute_sandbox"], "egress_security")
     graph.add_conditional_edges(
         "codegen",
         route_after_codegen,
@@ -64,22 +67,7 @@ def build_pipeline() -> StateGraph:
             "execute_sandbox": "execute_sandbox",
         },
     )
-    graph.add_conditional_edges(
-        "execute_local",
-        route_after_execute,
-        {
-            "reflect": "reflect",
-            END: END,
-        },
-    )
-    graph.add_conditional_edges(
-        "execute_sandbox",
-        route_after_execute,
-        {
-            "reflect": "reflect",
-            END: END,
-        },
-    )
+    graph.add_conditional_edges("egress_security", route_after_egress, {"reflect": "reflect", END: END})
     graph.add_conditional_edges(
         "reflect",
         route_after_reflect,

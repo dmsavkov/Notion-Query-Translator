@@ -2,7 +2,7 @@ import operator
 from dataclasses import dataclass
 from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 TerminalStatus = Literal[
@@ -110,6 +110,7 @@ class PipelineParams(BaseModel):
     sandbox_template: str = "notion-query-execution-sandbox"
     sandbox_client_timeout_seconds: int = 5 * 60
     sandbox_execution_timeout_seconds: int = 15
+    egress_checked_tokens: List[str] = Field(default_factory=lambda: ["NOTION_TOKEN"])
 
     model_config = ConfigDict(frozen=True)
 
