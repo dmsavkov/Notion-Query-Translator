@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Any, cast
 
 from src.core.lifecycle import build_pipeline
@@ -16,6 +16,7 @@ from src.models.schema import (
 from src.nodes import (
     codegen_node,
     execute_node,
+    execute_sandbox_node,
     plan_node,
     precheck_general_node,
     precheck_security_node,
@@ -23,6 +24,7 @@ from src.nodes import (
     retrieve_node,
 )
 from src.routing import route_after_codegen, route_after_execute, route_after_reflect
+from src.utils.execution_utils import ExecutionResult
 
 
 def _make_agent_params(
@@ -61,19 +63,22 @@ def _config(
 
 @pytest.mark.orchestration
 def test_route_after_codegen():
-    # Codegen always routes to execute (no longer checks minimal mode)
-    config_min = _config(pipeline=PipelineParams(minimal=True))
-    assert route_after_codegen(cast(Any, {}), config_min) == "execute"
-    
-    config_full = _config(pipeline=PipelineParams(minimal=False))
-    assert route_after_codegen(cast(Any, {}), config_full) == "execute"
+    config_local = _config(pipeline=PipelineParams(execution_method="local"))
+    assert route_after_codegen(cast(Any, {}), config_local) == "execute_local"
+
+    config_sandbox = _config(pipeline=PipelineParams(execution_method="sandbox"))
+    assert route_after_codegen(cast(Any, {}), config_sandbox) == "execute_sandbox"
 
 @pytest.mark.orchestration
 def test_route_after_execute():
+    timeout_state = cast(Any, {"terminal_status": "max_retries_exceeded"})
+    config_timeout = _config(pipeline=PipelineParams(minimal=False))
+    assert route_after_execute(timeout_state, config_timeout) == "__end__"
+
     # Minimal mode: end after execute
     config_min = _config(pipeline=PipelineParams(minimal=True))
     assert route_after_execute(cast(Any, {}), config_min) == "__end__"
-    
+
     # Full mode: continue to reflect
     config_full = _config(pipeline=PipelineParams(minimal=False))
     assert route_after_execute(cast(Any, {}), config_full) == "reflect"
@@ -81,16 +86,16 @@ def test_route_after_execute():
 @pytest.mark.orchestration
 def test_route_after_reflect():
     # Success
-    state_pass = cast(Any, {"verdict": {"pass": True}})
+    state_pass = cast(Any, {"terminal_status": "success"})
     config = _config(pipeline=PipelineParams(max_trials=3))
     assert route_after_reflect(state_pass, config) == "__end__"
     
     # Failure, trial 1
-    state_fail_1 = cast(Any, {"verdict": {"pass": False}, "trial_num": 1})
+    state_fail_1 = cast(Any, {"terminal_status": "execution_failed", "trial_num": 1})
     assert route_after_reflect(state_fail_1, config) == "codegen"
     
     # Failure, trial 3 (max reached)
-    state_fail_3 = cast(Any, {"verdict": {"pass": False}, "trial_num": 3})
+    state_fail_3 = cast(Any, {"terminal_status": "max_retries_exceeded", "trial_num": 3})
     assert route_after_reflect(state_fail_3, config) == "__end__"
 
 @pytest.mark.orchestration
@@ -131,11 +136,12 @@ async def test_full_graph_trajectory_mocked(mock_chat_wrapper):
         "verdict": {},
         "trials": [],
         "final_code": "",
+        "terminal_status": "pending",
         "queries": [],
     }
     
     config = _config(
-        pipeline=PipelineParams(minimal=False, max_trials=3),
+        pipeline=PipelineParams(minimal=False, max_trials=3, execution_method="local"),
         static=StaticParams(context_used="baseline", enable_planning=True),
         agent=_make_agent_params(
             query_translator=QueryTranslatorParams(
@@ -154,11 +160,32 @@ async def test_full_graph_trajectory_mocked(mock_chat_wrapper):
         ),
     )
     
-    final_state = await pipeline.ainvoke(initial_state, config=config)
+    with patch(
+        "src.nodes.run_general_check",
+        new_callable=AsyncMock,
+        return_value={
+            "reasoning": "in scope",
+            "relevant_to_notion_scope": True,
+            "complexity_label": "simple",
+            "request_type": "POST",
+        },
+    ), patch(
+        "src.nodes.run_llama_guard_check",
+        new_callable=AsyncMock,
+        return_value={
+            "is_safe": True,
+            "verdict": "safe",
+            "violations": [],
+            "raw": "safe",
+            "error": "",
+        },
+    ):
+        final_state = await pipeline.ainvoke(initial_state, config=config)
     
     assert final_state["trial_num"] == 2
     assert final_state["verdict"]["pass"] is True
     assert len(final_state["trials"]) == 2
+    assert final_state["terminal_status"] == "success"
 
 
 @pytest.mark.orchestration
@@ -216,6 +243,58 @@ async def test_precheck_nodes_pass_through_none_max_tokens():
     assert mock_general.await_args.kwargs["max_tokens"] is None
     assert mock_security.await_args is not None
     assert mock_security.await_args.kwargs["max_tokens"] is None
+
+
+@pytest.mark.orchestration
+@pytest.mark.asyncio
+async def test_planner_codegen_reflector_pass_through_none_max_tokens():
+    plan_state = {
+        "user_prompt": "Create a task",
+        "retrieval_context": "Static context",
+    }
+    codegen_state = {
+        "user_prompt": "Write code",
+        "general_info": "General info block",
+        "feedback": "",
+        "trial_num": 0,
+    }
+    reflect_state = {
+        "general_info": "General info block",
+        "generated_code": "print('hello')",
+        "function_name": "main",
+        "solution_run": {"exit_code": 0, "stdout": "hello\n", "stderr": "", "passed": True},
+        "reflection_context": [],
+        "trials": [],
+        "trial_num": 1,
+    }
+    config = _config(
+        static=StaticParams(enable_planning=True, context_used="baseline"),
+        agent=AgentParams(),
+    )
+
+    with patch("src.nodes.generate_request_plan", new_callable=AsyncMock, return_value="Step 1") as mock_plan:
+        await plan_node(plan_state, config)
+
+    with patch(
+        "src.nodes.generate_code",
+        new_callable=AsyncMock,
+        return_value={"code": "print('ok')", "function_name": "main"},
+    ) as mock_codegen:
+        await codegen_node(codegen_state, config)
+
+    with patch(
+        "src.nodes.reflect_code",
+        new_callable=AsyncMock,
+        return_value={"reasoning": "Looks good", "pass": True, "feedback": ""},
+    ) as mock_reflect:
+        await reflect_node(reflect_state, config)
+
+    assert mock_plan.await_args is not None
+    assert mock_plan.await_args.kwargs["chat_fn"].keywords["max_tokens"] is None
+    assert mock_codegen.await_args is not None
+    assert mock_codegen.await_args.kwargs["max_tokens"] is None
+    assert mock_reflect.await_args is not None
+    assert mock_reflect.await_args.kwargs["max_tokens"] is None
 
 
 @pytest.mark.orchestration
@@ -371,8 +450,94 @@ async def test_execute_node_runs_code_and_captures_stdout():
         "generated_code": "print('expected stdout')",
     }
 
-    result = await execute_node(state, config={})
+    result = await execute_node(
+        state,
+        config=_config(pipeline=PipelineParams(execution_method="local")),
+    )
 
     assert result["solution_run"]["passed"] is True
     assert "expected stdout" in result["solution_run"]["stdout"]
     assert "expected stdout" in result["execution_output"]
+    assert result["terminal_status"] == "success"
+
+
+@pytest.mark.orchestration
+@pytest.mark.asyncio
+async def test_execute_node_minimal_mode_sets_terminal_status():
+    state = {
+        "task_id": "minimal_case",
+        "generated_code": "print('ok')",
+    }
+
+    result = await execute_node(
+        state,
+        config=_config(pipeline=PipelineParams(execution_method="local", minimal=True)),
+    )
+
+    assert result["solution_run"]["passed"] is True
+    assert result["terminal_status"] == "success"
+
+
+@pytest.mark.orchestration
+@pytest.mark.asyncio
+async def test_execute_sandbox_node_sets_max_retries_for_timeout():
+    state = {
+        "task_id": "sandbox_timeout",
+        "generated_code": "print('x')",
+    }
+    timeout_result = ExecutionResult(
+        exit_code=-1,
+        stdout="",
+        stderr="execution timed out",
+        passed=False,
+        error="Timeout",
+    )
+
+    sandbox = MagicMock()
+    with patch("src.nodes.Sandbox.create", return_value=sandbox) as mock_create, patch(
+        "src.nodes.run_code_in_sandbox",
+        return_value=timeout_result,
+    ) as mock_run:
+        result = await execute_sandbox_node(
+            state,
+            _config(pipeline=PipelineParams(execution_method="sandbox")),
+        )
+
+    assert result["solution_run"]["error"] == "Timeout"
+    assert result["terminal_status"] == "max_retries_exceeded"
+    mock_create.assert_called_once()
+    mock_run.assert_called_once()
+    sandbox.kill.assert_called_once()
+
+
+@pytest.mark.orchestration
+@pytest.mark.asyncio
+async def test_reflect_node_sets_terminal_status_for_success_and_failures():
+    success_state = {
+        "general_info": "General info block",
+        "generated_code": "print('hello')",
+        "function_name": "main",
+        "solution_run": {"exit_code": 0, "stdout": "hello\n", "stderr": "", "passed": True},
+        "reflection_context": [],
+        "trials": [],
+        "trial_num": 1,
+    }
+    failure_state = {
+        "general_info": "General info block",
+        "generated_code": "print('hello')",
+        "function_name": "main",
+        "solution_run": {"exit_code": 1, "stdout": "", "stderr": "boom", "passed": False},
+        "reflection_context": [],
+        "trials": [],
+        "trial_num": 3,
+    }
+    config = _config(pipeline=PipelineParams(max_trials=3))
+
+    with patch("src.nodes.reflect_code", new_callable=AsyncMock, return_value={"reasoning": "ok", "pass": True, "feedback": ""}):
+        out_success = await reflect_node(success_state, config)
+
+    with patch("src.nodes.reflect_code", new_callable=AsyncMock, return_value={"reasoning": "bad", "pass": False, "feedback": "fix it"}):
+        out_failure = await reflect_node(failure_state, config)
+
+    assert out_success["terminal_status"] == "success"
+    assert out_failure["terminal_status"] == "max_retries_exceeded"

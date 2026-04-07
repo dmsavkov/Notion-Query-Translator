@@ -5,6 +5,15 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, TypedDict
 from pydantic import BaseModel, ConfigDict
 
 
+TerminalStatus = Literal[
+    "pending",
+    "success",
+    "security_blocked",
+    "execution_failed",
+    "max_retries_exceeded",
+]
+
+
 @dataclass(frozen=True)
 class RagBuildConfig:
     corpora_path: str = "./data/corpora.txt"
@@ -97,6 +106,10 @@ class PipelineParams(BaseModel):
 
     minimal: bool = False
     max_trials: int = 3
+    execution_method: Literal["local", "sandbox"] = "sandbox"
+    sandbox_template: str = "notion-query-execution-sandbox"
+    sandbox_client_timeout_seconds: int = 5 * 60
+    sandbox_execution_timeout_seconds: int = 15
 
     model_config = ConfigDict(frozen=True)
 
@@ -142,6 +155,7 @@ class PipelineState(TypedDict):
     verdict: Dict[str, Any]
     trials: List[Dict[str, Any]]
     final_code: str
+    terminal_status: TerminalStatus
     queries: Annotated[List[str], operator.add]
 
 
@@ -173,6 +187,7 @@ def generate_default_state() -> PipelineState:
         "verdict": {},
         "trials": [],
         "final_code": "",
+        "terminal_status": "pending",
         "queries": [],
     }
 
@@ -184,6 +199,7 @@ __all__ = [
     "PipelineState",
     "RagBuildConfig",
     "StaticParams",
+    "TerminalStatus",
     "build_cli_eval_tasks",
     "generate_default_state",
 ]

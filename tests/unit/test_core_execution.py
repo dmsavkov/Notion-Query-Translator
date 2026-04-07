@@ -36,6 +36,7 @@ def test_generate_default_state_starts_empty():
     assert state["user_prompt"] == ""
     assert state["meta"] == {}
     assert state["security"] == {}
+    assert state["terminal_status"] == "pending"
 
 
 @pytest.mark.unit

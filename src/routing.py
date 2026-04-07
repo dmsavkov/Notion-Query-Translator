@@ -5,8 +5,12 @@ from .models.schema import PipelineState
 
 
 def route_after_codegen(state: PipelineState, config: RunnableConfig) -> str:
-    # Always execute at least once so pass/fail reflects real runtime behavior.
-    return "execute"
+    configurable = config.get("configurable", {})
+    pipeline_params = configurable.get("pipeline_params")
+    execution_method = str(getattr(pipeline_params, "execution_method", "local"))
+    if execution_method == "sandbox":
+        return "execute_sandbox"
+    return "execute_local"
 
 
 def route_after_precheck(state: PipelineState, config: RunnableConfig) -> str:
@@ -18,20 +22,16 @@ def route_after_precheck(state: PipelineState, config: RunnableConfig) -> str:
 
 
 def route_after_execute(state: PipelineState, config: RunnableConfig) -> str:
-    configurable = config.get("configurable", {})
-    pipeline_params = configurable["pipeline_params"]
-    if bool(pipeline_params.minimal):
+    pipeline_params = config.get("configurable", {}).get("pipeline_params")
+    if str(state.get("terminal_status") or "") == "max_retries_exceeded" or bool(getattr(pipeline_params, "minimal", False)):
         return END
     return "reflect"
 
 
 def route_after_reflect(state: PipelineState, config: RunnableConfig) -> str:
-    # Use the LLM's pass/fail verdict for routing.
-    if state.get("verdict", {}).get("pass", False):
+    pipeline_params = config.get("configurable", {}).get("pipeline_params")
+    if str(state.get("terminal_status") or "") in {"success", "max_retries_exceeded"}:
         return END
-
-    configurable = config.get("configurable", {})
-    pipeline_params = configurable["pipeline_params"]
-    if state.get("trial_num", 0) >= int(pipeline_params.max_trials):
+    if state.get("trial_num", 0) >= int(getattr(pipeline_params, "max_trials", 0) or 0):
         return END
     return "codegen"
