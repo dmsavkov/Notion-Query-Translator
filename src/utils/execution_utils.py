@@ -2,12 +2,19 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from e2b_code_interpreter import ALL_TRAFFIC, Sandbox, TimeoutException
 from langsmith import traceable
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+try:
+    from e2b_code_interpreter import SandboxNetworkOpts
+except ImportError:  # pragma: no cover - fallback for older/newer SDK layout
+    from e2b.sandbox.sandbox_api import SandboxNetworkOpts
 
 
 class ExecutionResult(BaseModel):
@@ -31,6 +38,63 @@ def is_timeout_result(result: ExecutionResult) -> bool:
     return "timeout" in text or "timed out" in text
 
 
+@traceable(name="execution.sandbox.get_or_create")
+def get_or_create_sandbox(
+    sandbox_id: Optional[str],
+    thread_id: str,
+    task_id: str,
+    template: str,
+    timeout_seconds: int,
+) -> Any:
+    """Gets an existing sandbox or creates a new one, returning the Sandbox instance."""
+    if sandbox_id:
+        try:
+            return Sandbox.connect(sandbox_id)
+        except Exception:
+            # Fallback to create if not found or connection failed
+            pass
+
+    return Sandbox.create(
+        metadata={"thread_id": thread_id, "task_id": task_id},
+        envs={key: value for key, value in os.environ.items() if key.startswith("NOTION_") and str(value).strip()},
+        allow_internet_access=True,
+        template=template,
+        timeout=timeout_seconds,
+        network=SandboxNetworkOpts(
+            deny_out=[ALL_TRAFFIC],
+            allow_out=["api.notion.com"],
+            allow_public_traffic=False,
+        ),
+        api_key=os.getenv("E2B_API_KEY"),
+    )
+
+
+def kill_sandbox(sandbox_id: str) -> None:
+    """Kills a sandbox by its ID if it exists."""
+    if not sandbox_id:
+        return
+    try:
+        sandbox = Sandbox.connect(sandbox_id)
+        sandbox.kill()
+    except Exception:
+        pass
+
+
+def _parse_json_if_string(value: Any) -> Any:
+    if isinstance(value, str):
+        with suppress(Exception):
+            return json.loads(value)
+    return value
+
+
+def _join_log_lines(lines: Any) -> str:
+    if isinstance(lines, str):
+        return lines
+    if isinstance(lines, list):
+        return "".join(str(item) for item in lines)
+    return ""
+
+
 @traceable(name="execution.sandbox.run_code")
 def run_code_in_sandbox(
     *,
@@ -38,25 +102,71 @@ def run_code_in_sandbox(
     code: str,
     execution_timeout_seconds: int,
 ) -> ExecutionResult:
-    execution = sandbox.run_code(
-        code,
-        timeout=execution_timeout_seconds,
-        request_timeout=execution_timeout_seconds,
-    )
-    execution_data = json.loads(execution.to_json())
-    logs = execution_data.get("logs") or {}
-    error = execution_data.get("error") or {}
-    error_name = error.get("name") if isinstance(error, dict) else None
-    error_value = error.get("value") if isinstance(error, dict) else ""
+    try:
+        execution = sandbox.run_code(
+            code,
+            timeout=execution_timeout_seconds,
+            request_timeout=execution_timeout_seconds,
+        )
+    except TimeoutException as exc:
+        return ExecutionResult(
+            exit_code=-1,
+            stdout="",
+            stderr=str(exc),
+            passed=False,
+            error="Timeout",
+            metadata={"execution": None},
+        )
+
+    execution_data: Dict[str, Any] = {}
+    with suppress(Exception):
+        execution_data = json.loads(execution.to_json())
+
+    logs_data = _parse_json_if_string(execution_data.get("logs") or {})
+    if not isinstance(logs_data, dict):
+        logs_data = {}
+
+    error_data = _parse_json_if_string(execution_data.get("error"))
+    if error_data is None:
+        error_data = {}
+    if not isinstance(error_data, dict):
+        error_data = {"value": str(error_data)}
+
+    # Fall back to object attributes when JSON payload shape differs across SDK versions.
+    logs_obj = getattr(execution, "logs", None)
+    stdout = _join_log_lines(logs_data.get("stdout"))
+    stderr = _join_log_lines(logs_data.get("stderr"))
+    if not stdout:
+        stdout = _join_log_lines(getattr(logs_obj, "stdout", None))
+    if not stderr:
+        stderr = _join_log_lines(getattr(logs_obj, "stderr", None))
+
+    error_name = error_data.get("name") if isinstance(error_data, dict) else None
+    error_value = str(error_data.get("value") or "") if isinstance(error_data, dict) else ""
+
+    error_obj = getattr(execution, "error", None)
+    if error_obj is not None:
+        error_name = error_name or getattr(error_obj, "name", None)
+        if not error_value:
+            error_value = str(getattr(error_obj, "value", "") or "")
+
+    has_error = bool(error_name) or bool(error_value)
     timeout = "timeout" in f"{error_name or ''} {error_value or ''}".lower()
+    normalized_error = "Timeout" if timeout else (str(error_name) if error_name else "ExecutionError" if has_error else None)
+
+    normalized_execution: Dict[str, Any] = {
+        **execution_data,
+        "logs": logs_data,
+        "error": error_data,
+    }
 
     return ExecutionResult(
-        exit_code=0 if error_name is None else -1,
-        stdout="".join(logs.get("stdout") or []),
-        stderr="".join(logs.get("stderr") or []) or str(error_value or ""),
-        passed=error_name is None,
-        error="Timeout" if timeout else error_name,
-        metadata={"execution": execution_data},
+        exit_code=0 if not has_error else -1,
+        stdout=stdout,
+        stderr=stderr or str(error_value or ""),
+        passed=not has_error,
+        error=normalized_error,
+        metadata={"execution": normalized_execution},
     )
 
 
@@ -126,6 +236,8 @@ def run_isolated_code(code: str, task_id: str, timeout_seconds: int = 30) -> Exe
 __all__ = [
     "ExecutionResult",
     "generate_thread_id",
+    "get_or_create_sandbox",
+    "kill_sandbox",
     "is_timeout_result",
     "run_code_in_sandbox",
     "run_isolated_code",

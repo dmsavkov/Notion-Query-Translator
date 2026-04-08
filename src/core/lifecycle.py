@@ -19,6 +19,7 @@ from ..nodes import (
     precheck_security_node,
     reflect_node,
     retrieve_node,
+    cleanup_sandbox_node,
 )
 from ..routing import (
     route_after_codegen,
@@ -43,6 +44,7 @@ def build_pipeline() -> StateGraph:
     graph.add_node("execute_sandbox", cast(Any, execute_sandbox_node))
     graph.add_node("egress_security", cast(Any, egress_security_node))
     graph.add_node("reflect", cast(Any, reflect_node))
+    graph.add_node("cleanup_sandbox", cast(Any, cleanup_sandbox_node))
 
     graph.add_edge(START, "precheck_general")
     graph.add_edge(START, "precheck_security")
@@ -67,15 +69,16 @@ def build_pipeline() -> StateGraph:
             "execute_sandbox": "execute_sandbox",
         },
     )
-    graph.add_conditional_edges("egress_security", route_after_egress, {"reflect": "reflect", END: END})
+    graph.add_conditional_edges("egress_security", route_after_egress, {"reflect": "reflect", END: "cleanup_sandbox"})
     graph.add_conditional_edges(
         "reflect",
         route_after_reflect,
         {
             "codegen": "codegen",
-            END: END,
+            END: "cleanup_sandbox",
         },
     )
+    graph.add_edge("cleanup_sandbox", END)
     return graph
 
 

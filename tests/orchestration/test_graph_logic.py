@@ -25,7 +25,6 @@ from src.nodes import (
     retrieve_node,
 )
 from src.routing import route_after_codegen, route_after_egress, route_after_reflect
-from src.routing import route_after_execute
 from src.utils.execution_utils import ExecutionResult
 
 
@@ -71,11 +70,6 @@ def test_route_after_codegen():
     config_sandbox = _config(pipeline=PipelineParams(execution_method="sandbox"))
     assert route_after_codegen(cast(Any, {}), config_sandbox) == "execute_sandbox"
 
-
-@pytest.mark.orchestration
-def test_route_after_execute_routes_to_egress():
-    config = _config(pipeline=PipelineParams(minimal=True))
-    assert route_after_execute(cast(Any, {}), config) == "egress_security"
 
 @pytest.mark.orchestration
 def test_route_after_egress():
@@ -512,7 +506,8 @@ async def test_execute_sandbox_node_sets_max_retries_for_timeout():
     )
 
     sandbox = MagicMock()
-    with patch("src.nodes.Sandbox.create", return_value=sandbox) as mock_create, patch(
+    sandbox.sandbox_id = "sbx-test-timeout"
+    with patch("src.nodes.get_or_create_sandbox", return_value=sandbox) as mock_get_or_create, patch(
         "src.nodes.run_code_in_sandbox",
         return_value=timeout_result,
     ) as mock_run:
@@ -523,9 +518,10 @@ async def test_execute_sandbox_node_sets_max_retries_for_timeout():
 
     assert result["solution_run"]["error"] == "Timeout"
     assert result["terminal_status"] == "max_retries_exceeded"
-    mock_create.assert_called_once()
+    assert result["sandbox_id"] == "sbx-test-timeout"
+    mock_get_or_create.assert_called_once()
     mock_run.assert_called_once()
-    sandbox.kill.assert_called_once()
+    sandbox.kill.assert_not_called()
 
 
 @pytest.mark.orchestration

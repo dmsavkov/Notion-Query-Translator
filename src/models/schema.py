@@ -158,6 +158,7 @@ class PipelineState(TypedDict):
     final_code: str
     terminal_status: TerminalStatus
     queries: Annotated[List[str], operator.add]
+    sandbox_id: Optional[str]
 
 
 def build_cli_eval_tasks(cli_params: CliParams) -> Dict[str, Dict[str, Any]]:
@@ -190,6 +191,7 @@ def generate_default_state() -> PipelineState:
         "final_code": "",
         "terminal_status": "pending",
         "queries": [],
+        "sandbox_id": None,
     }
 
 

@@ -1,11 +1,9 @@
 """LangGraph node implementations for the pipeline."""
 
 import os
-from contextlib import suppress
 from functools import partial
 from typing import Any, Dict, List, Literal, cast
 
-from e2b_code_interpreter import ALL_TRAFFIC, Sandbox, SandboxNetworkOpts
 from langchain_core.runnables import RunnableConfig
 
 from .all_functionality import (
@@ -17,7 +15,14 @@ from .all_functionality import (
 )
 from .guards import run_general_check, run_llama_guard_check
 from .models.hardcoded_contexts import get_hardcoded_context
-from .utils.execution_utils import ExecutionResult, is_timeout_result, run_code_in_sandbox, run_isolated_code
+from .utils.execution_utils import (
+    ExecutionResult,
+    is_timeout_result,
+    run_code_in_sandbox,
+    run_isolated_code,
+    get_or_create_sandbox,
+    kill_sandbox,
+)
 
 
 async def _create_queries(
@@ -233,21 +238,18 @@ async def execute_sandbox_node(state: Dict[str, Any], config: RunnableConfig) ->
     client_timeout_seconds = int(getattr(pipeline_params, "sandbox_client_timeout_seconds", 300))
     execution_timeout_seconds = int(getattr(pipeline_params, "sandbox_execution_timeout_seconds", 15))
     sandbox = None
+    sandbox_id = state.get("sandbox_id")
 
     try:
-        sandbox = Sandbox.create(
-            metadata={"thread_id": thread_id, "task_id": state["task_id"]},
-            envs={key: value for key, value in os.environ.items() if key.startswith("NOTION_") and str(value).strip()},
-            allow_internet_access=True,
+        sandbox = get_or_create_sandbox(
+            sandbox_id=sandbox_id,
+            thread_id=thread_id,
+            task_id=state["task_id"],
             template=template,
-            timeout=client_timeout_seconds,
-            network=SandboxNetworkOpts(
-                deny_out=[ALL_TRAFFIC],
-                allow_out=["api.notion.com"],
-                allow_public_traffic=False,
-            ),
-            api_key=os.getenv("E2B_API_KEY"),
+            timeout_seconds=client_timeout_seconds,
         )
+        sandbox_id = sandbox.sandbox_id
+        
         result = run_code_in_sandbox(
             sandbox=sandbox,
             code=str(state.get("generated_code") or ""),
@@ -262,12 +264,11 @@ async def execute_sandbox_node(state: Dict[str, Any], config: RunnableConfig) ->
             error=type(exc).__name__,
             metadata={"method": "sandbox", "thread_id": thread_id, "task_id": state["task_id"], "template": template},
         )
-    finally:
-        if sandbox is not None:
-            with suppress(Exception):
-                sandbox.kill()
 
-    return _execution_state_update(result)
+    # Note: sandbox.kill() removed here to allow persistence across state iterations
+    update_data = _execution_state_update(result)
+    update_data["sandbox_id"] = sandbox_id
+    return update_data
 
 
 async def execute_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
@@ -336,3 +337,10 @@ async def reflect_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
         "final_code": state.get("generated_code", ""),
         "terminal_status": "success" if verdict.get("pass", False) else "max_retries_exceeded" if trial_num >= max_trials else "execution_failed",
     }
+
+
+async def cleanup_sandbox_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    sandbox_id = state.get("sandbox_id")
+    if sandbox_id:
+        kill_sandbox(sandbox_id)
+    return {"sandbox_id": None}
