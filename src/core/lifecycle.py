@@ -60,7 +60,8 @@ def build_pipeline() -> StateGraph:
     graph.add_edge("malovolent_request", END)
     graph.add_edge("retrieve", "plan")
     graph.add_edge("plan", "codegen")
-    graph.add_edge(["execute_local", "execute_sandbox"], "egress_security")
+    graph.add_edge("execute_local", "egress_security")
+    graph.add_edge("execute_sandbox", "egress_security")
     graph.add_conditional_edges(
         "codegen",
         route_after_codegen,
