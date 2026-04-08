@@ -282,6 +282,9 @@ NOTION_ID_UPDATE_PAGE_ID={page_ids['id_update']}
 # Google API Configuration
 GOOGLE_API_KEY={os.environ.get("GOOGLE_API_KEY", "your_google_api_key_here")}
 
+# E2B Sandbox API Configuration
+E2B_API_KEY={os.environ.get("E2B_API_KEY", "your_e2b_api_key_here")}
+
 # LangSmith Configuration
 LANGSMITH_TRACING={os.environ.get("LANGSMITH_TRACING", "true")}
 LANGSMITH_ENDPOINT={os.environ.get("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com")}
