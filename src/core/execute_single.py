@@ -86,14 +86,21 @@ async def _execute_single_task(
     )
 
     try:
-        # Stream the graph execution to feed the UI bridge with node transitions
-        async for event in pipeline.astream(initial_state, config=config, stream_mode="updates"):
-            for node_name, state_update in event.items():
-                ui_bridge.current_node = node_name
-                if isinstance(state_update, dict):
-                    trial = state_update.get("trial_num")
-                    if trial is not None:
-                        ui_bridge.trial_num = int(trial)
+        # Stream the graph execution across multiple modes to feed the UI bridge
+        # We use 'debug' to track immediately when a node STARTS (so the spinner updates immediately)
+        # We use 'updates' to extract dynamic variables (like trial_num) as state is committed
+        async for mode, event in pipeline.astream(initial_state, config=config, stream_mode=["updates", "debug"]):
+            if mode == "debug" and isinstance(event, dict) and event.get("type") == "task":
+                payload = event.get("payload", {})
+                if isinstance(payload, dict) and "name" in payload:
+                    ui_bridge.current_node = payload["name"]
+
+            elif mode == "updates" and isinstance(event, dict):
+                for node_name, state_update in event.items():
+                    if isinstance(state_update, dict):
+                        trial = state_update.get("trial_num")
+                        if trial is not None:
+                            ui_bridge.trial_num = int(trial)
 
         # Retrieve the fully-aggregated final state from the checkpointer
         snapshot = await pipeline.aget_state(config)
