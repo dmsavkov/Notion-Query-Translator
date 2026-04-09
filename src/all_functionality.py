@@ -596,18 +596,3 @@ async def reflect_code(
         [{"role": "user", "content": prompt}],
         json_output=True, max_tokens=max_tokens, temperature=temperature, model_size=model_size,
     )
-
-
-# ── Evaluation ─────────────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-print("Evaluation functions defined.")
-
-
-
-
-print("Visualization function defined.")
