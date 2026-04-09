@@ -1,5 +1,6 @@
 from dataclasses import asdict
 from typing import Any, Dict, Optional, cast
+import sys
 import warnings
 
 from langchain_core.runnables import RunnableConfig
@@ -7,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 from ..models.config import AppConfig
 from ..models.schema import PipelineState, generate_default_state
 from ..utils.execution_utils import generate_thread_id
+from ..presentation import ui_bridge
 
 
 def _to_metadata_dict(value: Any) -> Dict[str, Any]:
@@ -76,23 +78,35 @@ async def _execute_single_task(
         initial_state["user_prompt"] = prompt
     initial_state["task_id"] = task_id
 
+    config = _build_running_config(
+        task_id=task_id,
+        thread_id=thread_id,
+        app_config=app_config,
+        qdrant_client=qdrant_client,
+    )
+
     try:
-        final_state = await pipeline.ainvoke(
-            initial_state,
-            config=_build_running_config(
-                task_id=task_id,
-                thread_id=thread_id,
-                app_config=app_config,
-                qdrant_client=qdrant_client,
-            ),
-        )
+        # Stream the graph execution to feed the UI bridge with node transitions
+        async for event in pipeline.astream(initial_state, config=config, stream_mode="updates"):
+            for node_name, state_update in event.items():
+                ui_bridge.current_node = node_name
+                if isinstance(state_update, dict):
+                    trial = state_update.get("trial_num")
+                    if trial is not None:
+                        ui_bridge.trial_num = int(trial)
+
+        # Retrieve the fully-aggregated final state from the checkpointer
+        snapshot = await pipeline.aget_state(config)
+        final_state = cast(Dict[str, Any], snapshot.values)
     except Exception as exc:
+        ui_bridge.current_node = "error"
         return {**initial_state, "error": str(exc)}
 
-    final_state = cast(PipelineState, final_state)
+    ui_bridge.current_node = "completed"
+
     execution = final_state.get("solution_run") or {}
     passed = bool(execution.get("passed", False)) if isinstance(execution, dict) else False
-    print(f"{task_id}: {'PASS' if passed else 'FAIL'}")
+    print(f"{task_id}: {'PASS' if passed else 'FAIL'}", file=sys.stderr)
     return cast(Dict[str, Any], final_state)
 
 

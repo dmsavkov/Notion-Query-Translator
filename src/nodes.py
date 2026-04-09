@@ -1,7 +1,10 @@
 """LangGraph node implementations for the pipeline."""
 
+import json
 import os
+from contextlib import suppress
 from functools import partial
+from pathlib import Path
 from typing import Any, Dict, List, Literal, cast
 
 from langchain_core.runnables import RunnableConfig
@@ -22,6 +25,11 @@ from .utils.execution_utils import (
     run_isolated_code,
     get_or_create_sandbox,
     kill_sandbox,
+)
+from .utils.telemetry import (
+    AFFECTED_IDS_PATH,
+    LOCAL_AFFECTED_IDS_PATH,
+    wrap_code_with_telemetry,
 )
 
 
@@ -224,7 +232,21 @@ def _execution_state_update(result: ExecutionResult) -> Dict[str, Any]:
 async def execute_local_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
     assert state.get("task_id"), "Missing 'task_id' in state before execution."
     assert "generated_code" in state, "Missing 'generated_code' in state before execution."
-    return _execution_state_update(run_isolated_code(code=str(state.get("generated_code") or ""), task_id=state["task_id"]))
+
+    raw_code = str(state.get("generated_code") or "")
+    instrumented_code = wrap_code_with_telemetry(raw_code, local=True)
+    result = run_isolated_code(code=instrumented_code, task_id=state["task_id"])
+    update_data = _execution_state_update(result)
+
+    # Extract affected IDs from the local temp file
+    affected_ids: List[str] = []
+    with suppress(Exception):
+        ids_path = Path(LOCAL_AFFECTED_IDS_PATH)
+        if ids_path.exists():
+            affected_ids = json.loads(ids_path.read_text())
+            ids_path.unlink(missing_ok=True)
+    update_data["affected_notion_ids"] = affected_ids
+    return update_data
 
 
 async def execute_sandbox_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
@@ -240,6 +262,9 @@ async def execute_sandbox_node(state: Dict[str, Any], config: RunnableConfig) ->
     sandbox = None
     sandbox_id = state.get("sandbox_id")
 
+    raw_code = str(state.get("generated_code") or "")
+    instrumented_code = wrap_code_with_telemetry(raw_code, local=False)
+
     try:
         sandbox = get_or_create_sandbox(
             sandbox_id=sandbox_id,
@@ -249,10 +274,10 @@ async def execute_sandbox_node(state: Dict[str, Any], config: RunnableConfig) ->
             timeout_seconds=client_timeout_seconds,
         )
         sandbox_id = sandbox.sandbox_id
-        
+
         result = run_code_in_sandbox(
             sandbox=sandbox,
-            code=str(state.get("generated_code") or ""),
+            code=instrumented_code,
             execution_timeout_seconds=execution_timeout_seconds,
         )
     except Exception as exc:
@@ -265,9 +290,16 @@ async def execute_sandbox_node(state: Dict[str, Any], config: RunnableConfig) ->
             metadata={"method": "sandbox", "thread_id": thread_id, "task_id": state["task_id"], "template": template},
         )
 
-    # Note: sandbox.kill() removed here to allow persistence across state iterations
+    # Extract affected IDs from the sandbox filesystem
+    affected_ids: List[str] = []
+    if sandbox is not None:
+        with suppress(Exception):
+            file_bytes = sandbox.files.read(AFFECTED_IDS_PATH)
+            affected_ids = json.loads(file_bytes)
+
     update_data = _execution_state_update(result)
     update_data["sandbox_id"] = sandbox_id
+    update_data["affected_notion_ids"] = affected_ids
     return update_data
 
 
