@@ -1,0 +1,107 @@
+{
+  "object": "page",
+  "id": "ccbcb17d-cc44-829a-b707-019899e91df7",
+  "created_time": "2025-11-01T10:00:00.000Z",
+  "last_edited_time": "2026-04-05T14:30:00.000Z",
+  "created_by": {"object": "user", "id": "user-abc-123"},
+  "last_edited_by": {"object": "user", "id": "user-abc-123"},
+  "cover": null,
+  "icon": {"type": "emoji", "emoji": "📋"},
+  "parent": {"type": "database_id", "database_id": "db-parent-id-000"},
+  "archived": false,
+  "in_trash": false,
+  "url": "https://www.notion.so/Test-Page-ccbcb17dcc44829ab707019899e91df7",
+  "public_url": null,
+  "properties": {
+    "Name": {
+      "id": "title",
+      "type": "title",
+      "title": [
+        {
+          "type": "text",
+          "text": {"content": "Architecture Review", "link": null},
+          "plain_text": "Architecture Review",
+          "href": null
+        }
+      ]
+    },
+    "Status": {
+      "id": "prop-status",
+      "type": "status",
+      "status": {"id": "s1", "name": "In Progress", "color": "blue"}
+    },
+    "Priority": {
+      "id": "prop-priority",
+      "type": "select",
+      "select": {"id": "p1", "name": "High", "color": "red"}
+    },
+    "Tags": {
+      "id": "prop-tags",
+      "type": "multi_select",
+      "multi_select": [
+        {"id": "t1", "name": "Backend", "color": "green"},
+        {"id": "t2", "name": "Architecture", "color": "blue"}
+      ]
+    },
+    "Due Date": {
+      "id": "prop-date",
+      "type": "date",
+      "date": {"start": "2026-04-15", "end": null, "time_zone": null}
+    },
+    "Assigned To": {
+      "id": "prop-people",
+      "type": "people",
+      "people": [
+        {
+          "object": "user",
+          "id": "user-abc-123",
+          "name": "Dmitry",
+          "avatar_url": "https://example.com/avatar.png",
+          "type": "person",
+          "person": {"email": "dmitry@example.com"}
+        }
+      ]
+    },
+    "Done": {
+      "id": "prop-checkbox",
+      "type": "checkbox",
+      "checkbox": false
+    },
+    "Score": {
+      "id": "prop-number",
+      "type": "number",
+      "number": 85
+    },
+    "Related Projects": {
+      "id": "prop-relation",
+      "type": "relation",
+      "relation": [
+        {"id": "rel-page-id-001"},
+        {"id": "rel-page-id-002"}
+      ],
+      "has_more": false
+    },
+    "Description": {
+      "id": "prop-richtext",
+      "type": "rich_text",
+      "rich_text": [
+        {
+          "type": "text",
+          "text": {"content": "Review the full system architecture and document decisions.", "link": null},
+          "plain_text": "Review the full system architecture and document decisions.",
+          "href": null
+        }
+      ]
+    },
+    "Task ID": {
+      "id": "prop-uid",
+      "type": "unique_id",
+      "unique_id": {"prefix": "TASK", "number": 42}
+    },
+    "URL": {
+      "id": "prop-url",
+      "type": "url",
+      "url": "https://github.com/example/repo"
+    }
+  }
+}
