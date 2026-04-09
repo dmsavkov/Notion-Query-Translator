@@ -90,16 +90,40 @@ python scripts/build_rag.py
 💻 Usage
 Command Line Interface (CLI)
 
-The project includes a CLI powered by Typer. You can interact with the agent directly from your terminal:
+The project includes a CLI powered by Typer with a rich terminal UI. When you run a command, you'll see:
+- A **splash screen** introducing the application.
+- A **dynamic spinner** that updates in real-time as the agent progresses through its pipeline stages (precheck → retrieve → codegen → execute → reflect).
+- **Beautiful page rendering** — affected Notion pages are fetched and displayed with rich property tables and formatted markdown.
+- All internal logs are silently routed to `logs/logs.log`.
 
 ```bash
 # Run a simple request
 
-notion-agent "Create a new task called 'Review Architecture'"
+notion-agent run "Create a new task called 'Review Architecture'"
 
 # Run with self-reflection and planning enabled (Think Mode)
 
-notion-agent "Find all unstarted urgent tasks and mark them as Do Now" --think
+notion-agent run "Find all unstarted urgent tasks and mark them as Do Now" --think
+```
+
+Example output:
+```
+ ╔══════════════════════════════════════════════════════╗
+ ║          Notion Query Translator  v0.1              ║
+ ║  Translate natural language → Notion API actions    ║
+ ╚══════════════════════════════════════════════════════╝
+
+ Prompt: Create a new task called 'Review Architecture'
+
+ ⠋ Writing Python script for Notion API...
+
+ 📄 1 page(s) affected
+ ─────────── Architecture Review ───────────
+  Page Properties
+  Property  │ Value
+  Status    │ In Progress
+  Priority  │ High
+  ...
 ```
 
 Running the Evaluation Pipeline
@@ -134,15 +158,22 @@ dmsavkov-notion-query-translator/
 │ ├── .qdrant_storage/ # Local Qdrant vector DB
 │ └── context/ # Hardcoded contexts and schema reports
 ├── evals/ # YAML-based evaluation benchmarks (simple & complex)
-├── notion_query/ # CLI entry points
+├── logs/ # Runtime logs (backend stdout captured here)
+├── notion_query/ # CLI entry points (splash, spinner, viewer)
 ├── scripts/ # Utilities for schema retrieval and error analysis
 ├── src/ # Core application logic
 │ ├── core/ # Lifecycle and execution orchestration
 │ ├── models/ # Config/state models and prompt/context assets
-│ ├── utils/ # Qdrant/OpenAI/execution helpers
+│ ├── presentation/ # Rich CLI rendering & Notion data fetching
+│ │ ├── notion_requesting.py # Notion API fetch (requests-based)
+│ │ ├── sanitization.py # Markdown cleanup & property flattening
+│ │ ├── ui_bridge.py # Pure-state singleton for streaming UI
+│ │ └── viewer.py # Rich table/panel/markdown renderer
+│ ├── utils/ # Qdrant/OpenAI/execution/telemetry helpers
 │ ├── nodes.py # LangGraph node definitions
 │ └── evaluator.py # LangSmith evaluation judges
 └── tests/ # Pytest test suites (unit, integration, smoke)
+    └── fixtures/ # Static Notion API payloads for testing
 ```
 
 🤝 Contributing
