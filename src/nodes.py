@@ -1,5 +1,6 @@
 """LangGraph node implementations for the pipeline."""
 
+import asyncio
 import json
 import os
 import sys
@@ -236,7 +237,7 @@ async def execute_local_node(state: Dict[str, Any], config: RunnableConfig) -> D
 
     raw_code = str(state.get("generated_code") or "")
     instrumented_code = wrap_code_with_telemetry(raw_code, local=True)
-    result = run_isolated_code(code=instrumented_code, task_id=state["task_id"])
+    result = await asyncio.to_thread(run_isolated_code, code=instrumented_code, task_id=state["task_id"])
     update_data = _execution_state_update(result)
 
     # Extract affected IDs from the local temp file
@@ -267,7 +268,8 @@ async def execute_sandbox_node(state: Dict[str, Any], config: RunnableConfig) ->
     instrumented_code = wrap_code_with_telemetry(raw_code, local=False)
 
     try:
-        sandbox = get_or_create_sandbox(
+        sandbox = await asyncio.to_thread(
+            get_or_create_sandbox,
             sandbox_id=sandbox_id,
             thread_id=thread_id,
             task_id=state["task_id"],
@@ -276,7 +278,8 @@ async def execute_sandbox_node(state: Dict[str, Any], config: RunnableConfig) ->
         )
         sandbox_id = sandbox.sandbox_id
 
-        result = run_code_in_sandbox(
+        result = await asyncio.to_thread(
+            run_code_in_sandbox,
             sandbox=sandbox,
             code=instrumented_code,
             execution_timeout_seconds=execution_timeout_seconds,
@@ -295,7 +298,7 @@ async def execute_sandbox_node(state: Dict[str, Any], config: RunnableConfig) ->
     affected_ids: List[str] = []
     if sandbox is not None:
         with suppress(Exception):
-            file_bytes = sandbox.files.read(AFFECTED_IDS_PATH)
+            file_bytes = await asyncio.to_thread(sandbox.files.read, AFFECTED_IDS_PATH)
             affected_ids = json.loads(file_bytes)
 
     update_data = _execution_state_update(result)
@@ -375,5 +378,5 @@ async def reflect_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
 async def cleanup_sandbox_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
     sandbox_id = state.get("sandbox_id")
     if sandbox_id:
-        kill_sandbox(sandbox_id)
+        await asyncio.to_thread(kill_sandbox, sandbox_id)
     return {"sandbox_id": None}
