@@ -17,13 +17,13 @@ _TELEMETRY_HEADER = textwrap.dedent("""\
     import requests as __sys_requests
     import json as __sys_json
     import re as __sys_re
-    import atexit as __sys_atexit
     import os as __sys_os
+    import sys as __sys_sys
 
     __system_affected_ids = set()
     __original_request = __sys_requests.Session.request
     __uuid_pattern = __sys_re.compile(
-        r'[0-9a-f]{{8}}-?[0-9a-f]{{4}}-?[0-9a-f]{{4}}-?[0-9a-f]{{4}}-?[0-9a-f]{{12}}'
+        r'[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}'
     )
 
     def __telemetry_request(self, method, url, *args, **kwargs):
@@ -35,6 +35,7 @@ _TELEMETRY_HEADER = textwrap.dedent("""\
                     page_id_clean = page_id.replace("-", "")
                     if __uuid_pattern.match(page_id_clean):
                         __system_affected_ids.add(page_id.lower())
+                        print(f"[telemetry] tracked: {page_id.lower()}", file=__sys_sys.stderr)
                 except (IndexError, AttributeError):
                     pass
         return __original_request(self, method, url, *args, **kwargs)
