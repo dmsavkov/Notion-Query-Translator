@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 from contextlib import suppress
 from functools import partial
 from pathlib import Path
@@ -106,7 +107,7 @@ async def malovolent_request_node(state: Dict[str, Any], config: RunnableConfig)
         f"verdict={security['verdict']}; "
         f"violations={security['violations']}"
     )
-    print(feedback)
+    print(feedback, file=sys.stderr)
     return {
         "execution_output": feedback,
         "feedback": feedback,

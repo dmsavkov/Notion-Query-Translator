@@ -96,7 +96,7 @@ async def run_general_check(
 
     if parsed.get("complexity_label") not in VALID_COMPLEXITY_LABELS:
         # TODO: What should be done in this case?
-        print(f"Warning: Invalid complexity_label in response: {parsed.get('complexity_label')}")
+        import sys; print(f"Warning: Invalid complexity_label in response: {parsed.get('complexity_label')}", file=sys.stderr)
         pass
 
     return {
