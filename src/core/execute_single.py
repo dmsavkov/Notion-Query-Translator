@@ -73,7 +73,7 @@ async def _execute_single_task(
 ) -> Dict[str, Any]:
     prompt = _extract_prompt(task_data)
     initial_state = generate_default_state()
-    initial_state.update(task_data)
+    initial_state.update(cast(Any, task_data))
     if not str(initial_state.get("user_prompt") or "").strip():
         initial_state["user_prompt"] = prompt
     initial_state["task_id"] = task_id
