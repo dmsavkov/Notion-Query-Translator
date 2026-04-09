@@ -1,14 +1,18 @@
-"""Tests for the presentation layer: sanitization, viewer, and telemetry.
+"""Tests for the presentation layer: sanitization, viewer, telemetry, and sandbox integration.
 
 Uses static JSON/markdown fixtures from tests/fixtures/ so no network
-or sandbox infrastructure is required.
+or sandbox infrastructure is required for unit tests.
+Integration tests (marked with ``@pytest.mark.integration``) exercise
+real E2B sandbox telemetry extraction.
 """
 
 import json
+import os
+import re
 from io import StringIO
 from pathlib import Path
 from typing import Any, Dict
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -18,7 +22,11 @@ from src.presentation.sanitization import (
     sanitize_notion_markdown,
 )
 from src.presentation.viewer import print_completed_state
-from src.utils.telemetry import wrap_code_with_telemetry
+from src.utils.telemetry import (
+    AFFECTED_IDS_PATH,
+    LOCAL_AFFECTED_IDS_PATH,
+    wrap_code_with_telemetry,
+)
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 
@@ -72,8 +80,6 @@ class TestFlattenProperties:
         assert people[0]["name"] == "Dmitry"
 
     def test_checkbox_extracted(self, flat: Dict[str, Any]) -> None:
-        # Checkbox is False which is falsy — should still be present
-        # Our flattener strips None/""/[]/{}  but not False
         raw = _load_page_properties()
         full_flat = flatten_notion_properties(raw)
         # False is a meaningful value and should NOT be stripped
@@ -102,11 +108,9 @@ class TestFlattenProperties:
     def test_page_id_present(self, flat: Dict[str, Any]) -> None:
         assert "page_id" in flat
 
-    def test_ignored_props_excluded(self, flat: Dict[str, Any]) -> None:
-        # page_icon is in IGNORE_PROPS but our fixture has an icon;
-        # however the flattener includes it. The viewer is responsible
-        # for filtering via IGNORE_PROPS.  Verify IGNORE_PROPS exists.
+    def test_ignored_props_set_exists(self) -> None:
         assert "page_object" in IGNORE_PROPS
+        assert "page_archived" in IGNORE_PROPS
 
     def test_empty_input_returns_empty(self) -> None:
         assert flatten_notion_properties({}) == {}
@@ -140,7 +144,6 @@ class TestSanitizeMarkdown:
         assert "[Referenced](https://notion.so/ref-page)" in clean
 
     def test_html_table_converted(self, clean: str) -> None:
-        # Should render as a markdown table
         assert "| Step | Component | Output |" in clean
         assert "| 1 | Precheck | Safety verdict |" in clean
 
@@ -166,10 +169,12 @@ class TestSanitizeMarkdown:
 
 
 # ===========================================================================
-# Telemetry
+# Telemetry — code wrapping
 # ===========================================================================
 
-class TestTelemetry:
+class TestTelemetryWrapping:
+    """Verify the telemetry sandwich produces correct, executable Python code."""
+
     def test_wrap_adds_header_and_footer(self) -> None:
         code = "print('hello')"
         wrapped = wrap_code_with_telemetry(code)
@@ -184,6 +189,133 @@ class TestTelemetry:
         assert "data/tmp_affected_ids.json" in wrapped
         assert "/tmp/affected_ids.json" not in wrapped
 
+    def test_regex_quantifiers_are_valid(self) -> None:
+        """The UUID regex must use single-brace quantifiers {8}, not {{8}}."""
+        wrapped = wrap_code_with_telemetry("pass")
+        # The regex pattern in the output code must have {8}, {4}, {12}
+        assert "{8}" in wrapped, "Regex quantifier {8} missing — likely double-brace bug"
+        assert "{4}" in wrapped, "Regex quantifier {4} missing"
+        assert "{12}" in wrapped, "Regex quantifier {12} missing"
+        # Must NOT have the double-brace variant
+        assert "{{8}}" not in wrapped, "Double-brace {{8}} found — regex will fail"
+
+    def test_wrapped_code_is_syntactically_valid(self) -> None:
+        """The wrapped code must compile without SyntaxError."""
+        wrapped = wrap_code_with_telemetry("x = 1 + 1")
+        compile(wrapped, "<telemetry_test>", "exec")  # raises SyntaxError on failure
+
+    def test_uuid_regex_matches_notion_ids(self) -> None:
+        """Verify the compiled regex actually matches Notion-style UUIDs."""
+        # Extract the regex pattern from the wrapped code
+        wrapped = wrap_code_with_telemetry("pass")
+        # Find the regex string
+        pattern_match = re.search(r"r'([^']+)'", wrapped)
+        assert pattern_match, "Could not find regex pattern in wrapped code"
+        pattern = re.compile(pattern_match.group(1))
+
+        # Test with hyphenated and non-hyphenated UUIDs
+        assert pattern.match("ccbcb17d-cc44-829a-b707-019899e91df7")
+        assert pattern.match("ccbcb17dcc44829ab707019899e91df7")
+        assert not pattern.match("not-a-uuid-at-all")
+        assert not pattern.match("zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz")
+
+
+# ===========================================================================
+# Telemetry — ID extraction from mock payloads
+# ===========================================================================
+
+class TestTelemetryExtraction:
+    """Verify that telemetry correctly extracts IDs from various URL patterns."""
+
+    def _run_telemetry_code(self, urls_and_methods: list[tuple[str, str]]) -> list[str]:
+        """Execute the telemetry header + simulated requests and return captured IDs."""
+        # Build test code that simulates requests to the given URLs
+        lines = []
+        for method, url in urls_and_methods:
+            lines.append(f"__sys_requests.{method.lower()}('{url}')")
+
+        test_code = "\n".join(lines)
+        full_code = wrap_code_with_telemetry(test_code)
+
+        # Replace the actual HTTP call with a no-op to avoid network access
+        full_code = full_code.replace(
+            "return __original_request(self, method, url, *args, **kwargs)",
+            "return type('R', (), {'status_code': 200, 'json': lambda self: {}, 'text': ''})()"
+        )
+
+        # Execute in isolated namespace
+        namespace: Dict[str, Any] = {}
+        exec(full_code, namespace)
+        return list(namespace.get("__system_affected_ids", set()))
+
+    def test_extracts_page_id_from_patch(self) -> None:
+        ids = self._run_telemetry_code([
+            ("PATCH", "https://api.notion.com/v1/pages/ccbcb17d-cc44-829a-b707-019899e91df7"),
+        ])
+        assert "ccbcb17d-cc44-829a-b707-019899e91df7" in ids
+
+    def test_extracts_page_id_from_get(self) -> None:
+        ids = self._run_telemetry_code([
+            ("GET", "https://api.notion.com/v1/pages/aabbccdd-1122-3344-5566-778899aabbcc"),
+        ])
+        assert "aabbccdd-1122-3344-5566-778899aabbcc" in ids
+
+    def test_extracts_from_blocks_endpoint(self) -> None:
+        ids = self._run_telemetry_code([
+            ("PATCH", "https://api.notion.com/v1/blocks/aabbccdd-1122-3344-5566-778899aabbcc/children"),
+        ])
+        assert "aabbccdd-1122-3344-5566-778899aabbcc" in ids
+
+    def test_deduplicates_multiple_calls(self) -> None:
+        page_id = "ccbcb17d-cc44-829a-b707-019899e91df7"
+        ids = self._run_telemetry_code([
+            ("GET", f"https://api.notion.com/v1/pages/{page_id}"),
+            ("PATCH", f"https://api.notion.com/v1/pages/{page_id}"),
+        ])
+        assert ids.count(page_id) == 1
+
+    def test_ignores_non_notion_urls(self) -> None:
+        ids = self._run_telemetry_code([
+            ("GET", "https://example.com/v1/pages/ccbcb17d-cc44-829a-b707-019899e91df7"),
+        ])
+        assert len(ids) == 0
+
+    def test_extracts_unhyphenated_id(self) -> None:
+        ids = self._run_telemetry_code([
+            ("GET", "https://api.notion.com/v1/pages/ccbcb17dcc44829ab707019899e91df7"),
+        ])
+        assert "ccbcb17dcc44829ab707019899e91df7" in ids
+
+
+# ===========================================================================
+# Telemetry — file output
+# ===========================================================================
+
+class TestTelemetryFileOutput:
+    """Verify that the footer writes the JSON file correctly."""
+
+    def test_footer_writes_json_file(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "affected_ids.json"
+        code = f"""
+import requests
+requests.get("https://api.notion.com/v1/pages/ccbcb17d-cc44-829a-b707-019899e91df7")
+"""
+        wrapped = wrap_code_with_telemetry(code)
+        # Redirect the output to our temp path (use forward slashes for cross-platform exec)
+        wrapped = wrapped.replace(AFFECTED_IDS_PATH, str(output_file).replace("\\", "/"))
+        # Mock the actual HTTP call
+        wrapped = wrapped.replace(
+            "return __original_request(self, method, url, *args, **kwargs)",
+            "return type('R', (), {'status_code': 200, 'json': lambda self: {}, 'text': ''})()"
+        )
+
+        exec(wrapped, {})
+
+        assert output_file.exists(), "Telemetry footer did not write the JSON file"
+        ids = json.loads(output_file.read_text())
+        assert isinstance(ids, list)
+        assert "ccbcb17d-cc44-829a-b707-019899e91df7" in ids
+
 
 # ===========================================================================
 # Viewer — state-based rendering
@@ -193,6 +325,7 @@ class TestViewer:
     """Verify viewer output for various terminal states."""
 
     def test_security_blocked_renders_panel(self, capsys: pytest.CaptureFixture) -> None:
+        """Security-blocked state must show a clear rejection message."""
         state = {
             "terminal_status": "security_blocked",
             "execution_output": "Blocked by LlamaGuard.",
@@ -200,9 +333,11 @@ class TestViewer:
         }
         print_completed_state(state)
         captured = capsys.readouterr().out
-        assert "Security Block" in captured or "blocked" in captured.lower()
+        assert "Security Block" in captured or "security" in captured.lower()
+        assert "blocked" in captured.lower()
 
     def test_execution_failed_renders_panel(self, capsys: pytest.CaptureFixture) -> None:
+        """Execution failure must show the error and feedback."""
         state = {
             "terminal_status": "execution_failed",
             "execution_output": "NameError: undefined var",
@@ -212,8 +347,22 @@ class TestViewer:
         print_completed_state(state)
         captured = capsys.readouterr().out
         assert "Execution Failed" in captured or "failed" in captured.lower()
+        assert "NameError" in captured
+
+    def test_max_retries_exceeded_renders_panel(self, capsys: pytest.CaptureFixture) -> None:
+        """Max retries exceeded must show the failure state distinctly."""
+        state = {
+            "terminal_status": "max_retries_exceeded",
+            "execution_output": "Timeout after 3 attempts",
+            "feedback": "Code kept timing out.",
+            "affected_notion_ids": [],
+        }
+        print_completed_state(state)
+        captured = capsys.readouterr().out
+        assert "max_retries_exceeded" in captured or "Failed" in captured
 
     def test_success_no_ids_shows_output(self, capsys: pytest.CaptureFixture) -> None:
+        """Success without affected IDs should show raw execution output."""
         state = {
             "terminal_status": "success",
             "execution_output": "Done successfully.",
@@ -231,6 +380,7 @@ class TestViewer:
         mock_props: Any,
         capsys: pytest.CaptureFixture,
     ) -> None:
+        """Success with affected IDs should fetch and render each page."""
         mock_props.return_value = _load_page_properties()
         mock_md.return_value = _load_page_markdown()
 
@@ -243,3 +393,89 @@ class TestViewer:
         captured = capsys.readouterr().out
         assert "Architecture Review" in captured
         assert "Page Properties" in captured
+
+    @patch("src.presentation.viewer.fetch_page_properties")
+    @patch("src.presentation.viewer.fetch_page_markdown")
+    def test_fetch_failure_shows_error_panel(
+        self,
+        mock_md: Any,
+        mock_props: Any,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """If fetching a page fails, show an error panel instead of crashing."""
+        mock_props.side_effect = Exception("HTTP 404: Page not found")
+
+        state = {
+            "terminal_status": "success",
+            "execution_output": "",
+            "affected_notion_ids": ["nonexistent-page-id"],
+        }
+        print_completed_state(state)
+        captured = capsys.readouterr().out
+        assert "Failed to fetch" in captured or "404" in captured
+
+
+# ===========================================================================
+# Sandbox integration (requires E2B_API_KEY)
+# ===========================================================================
+
+@pytest.mark.integration
+class TestSandboxTelemetryIntegration:
+    """Real E2B sandbox tests for telemetry extraction.
+
+    These tests require E2B_API_KEY and NOTION_TOKEN environment variables.
+    Run with: pytest -m integration
+    """
+
+    @pytest.fixture(autouse=True)
+    def _require_e2b_key(self) -> None:
+        if not os.getenv("E2B_API_KEY"):
+            pytest.skip("E2B_API_KEY not set")
+
+    def test_sandbox_telemetry_captures_ids(self) -> None:
+        """Full end-to-end: wrap code, run in sandbox, extract IDs from file."""
+        from e2b_code_interpreter import Sandbox
+
+        # Code that makes a real GET request to a known Notion page
+        notion_token = os.environ.get("NOTION_TOKEN", "")
+        if not notion_token:
+            pytest.skip("NOTION_TOKEN not set")
+
+        page_id = os.environ.get("NOTION_ID_PROJECT_PAGE_ID", "")
+        if not page_id:
+            pytest.skip("NOTION_ID_PROJECT_PAGE_ID not set")
+
+        test_code = f"""
+import requests
+import os
+
+headers = {{
+    "Authorization": f"Bearer {{os.environ.get('NOTION_TOKEN', '')}}",
+    "Notion-Version": "2022-06-28",
+}}
+resp = requests.get(
+    "https://api.notion.com/v1/pages/{page_id}",
+    headers=headers,
+    timeout=15,
+)
+print(f"Status: {{resp.status_code}}")
+"""
+        instrumented = wrap_code_with_telemetry(test_code, local=False)
+
+        sandbox = Sandbox.create(
+            envs={k: v for k, v in os.environ.items() if k.startswith("NOTION_")},
+            timeout=60,
+        )
+        try:
+            execution = sandbox.run_code(instrumented, timeout=30)
+
+            # Read back the telemetry file
+            file_bytes = sandbox.files.read(AFFECTED_IDS_PATH)
+            ids = json.loads(file_bytes)
+
+            assert isinstance(ids, list)
+            assert page_id.lower().replace("-", "") in "".join(ids).replace("-", ""), (
+                f"Expected {page_id} in captured IDs but got: {ids}"
+            )
+        finally:
+            sandbox.kill()
