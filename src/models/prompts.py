@@ -314,8 +314,9 @@ def build_generate_code_prompt(
         "  • IMPORTANT: Always print the final result or any relevant output to stdout so it can be captured by the system.\n"
         "  • `if __name__ == '__main__':` block that calls the function with os.getenv values.\n"
         "  • The `if __name__ == '__main__':` block MUST call `sys.exit(1)` if the function raises any exception or returns an error state.\n"
+        "  • PROHIBITED: Do NOT implement any custom 'search' or 'title resolution' logic if the title is already listed in <resource_map_context> (if provided). Use the ID from `RESOURCE_MAP` instead.\n  "
         "  • Never leave default mutable objects as function arguments (e.g., `def fn(data: list = [])`); use `None` instead.\n\n"
-        'Return as JSON: {"code": "<complete python module>", "function_name": "<main function name>"}'
+        'Return as JSON: {"code": "<complete python module>", "function_name": "<main function name>"}' 
     )
 
 

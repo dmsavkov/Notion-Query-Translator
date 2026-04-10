@@ -28,7 +28,7 @@ You are the first-entry general guardrail for a Notion API coding assistant.
 
 <output_format>
 Return strict JSON only.
-JSON keys (in this order): reasoning, relevant_to_notion_scope, complexity_label, request_type.
+JSON keys (in this order): reasoning, relevant_to_notion_scope, complexity_label, request_type, required_resources.
 </output_format>
 
 <label_descriptions>
@@ -45,6 +45,7 @@ GET, POST, PATCH, DELETE, UNKNOWN
 
 <guidance>
 Estimate complexity by considering likely number of steps, transformations, and scope touched.
+Collect all page or database titles mentioned in the query into 'required_resources' (List of strings). If none, return [].
 Do not output dangerousness flags.
 Do not output n_steps.
 </guidance>
@@ -56,7 +57,18 @@ Do not output n_steps.
     "reasoning": "Direct Notion create action in one scope.",
     "relevant_to_notion_scope": true,
     "complexity_label": "simple",
-    "request_type": "POST"
+    "request_type": "POST",
+    "required_resources": []
+}}</output>
+</example>
+<example>
+<query>Find the page named 'Validation Node' and add a comment.</query>
+<output>{{
+    "reasoning": "Need to resolve a specific page by title before adding a comment.",
+    "relevant_to_notion_scope": true,
+    "complexity_label": "simple",
+    "request_type": "POST",
+    "required_resources": ["Validation Node"]
 }}</output>
 </example>
 <example>
@@ -65,7 +77,8 @@ Do not output n_steps.
     "reasoning": "Out of Notion scope and unrelated to Notion entities.",
     "relevant_to_notion_scope": false,
     "complexity_label": "moderate",
-    "request_type": "UNKNOWN"
+    "request_type": "UNKNOWN",
+    "required_resources": []
 }}</output>
 </example>
 </few_shot_examples>
@@ -104,6 +117,7 @@ async def run_general_check(
         "relevant_to_notion_scope": parsed["relevant_to_notion_scope"],
         "complexity_label": parsed["complexity_label"],
         "request_type": str(parsed.get("request_type", "UNKNOWN")).upper(),
+        "required_resources": parsed.get("required_resources", []),
     }
 
 
