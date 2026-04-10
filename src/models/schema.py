@@ -11,6 +11,8 @@ TerminalStatus = Literal[
     "security_blocked",
     "execution_failed",
     "max_retries_exceeded",
+    "resource_not_found",
+    "ambiguity_unresolved",
 ]
 
 

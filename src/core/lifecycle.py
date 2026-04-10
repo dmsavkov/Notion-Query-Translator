@@ -17,6 +17,7 @@ from ..nodes import (
     precheck_general_node,
     precheck_join_node,
     precheck_security_node,
+    resolve_resources_node,
     reflect_node,
     retrieve_node,
     cleanup_sandbox_node,
@@ -37,6 +38,7 @@ def build_pipeline() -> StateGraph:
     graph.add_node("precheck_security", cast(Any, precheck_security_node))
     graph.add_node("precheck_join", cast(Any, precheck_join_node))
     graph.add_node("malovolent_request", cast(Any, malovolent_request_node))
+    graph.add_node("resolve_resources", cast(Any, resolve_resources_node))
     graph.add_node("retrieve", cast(Any, retrieve_node))
     graph.add_node("plan", cast(Any, plan_node))
     graph.add_node("codegen", cast(Any, codegen_node))
@@ -53,11 +55,12 @@ def build_pipeline() -> StateGraph:
         "precheck_join",
         route_after_precheck,
         {
-            "retrieve": "retrieve",
+            "resolve_resources": "resolve_resources",
             "malovolent_request": "malovolent_request",
         },
     )
     graph.add_edge("malovolent_request", END)
+    graph.add_edge("resolve_resources", "retrieve")
     graph.add_edge("retrieve", "plan")
     graph.add_edge("plan", "codegen")
     graph.add_edge("execute_local", "egress_security")

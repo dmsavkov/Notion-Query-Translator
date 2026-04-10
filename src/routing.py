@@ -17,7 +17,7 @@ def route_after_precheck(state: PipelineState, config: RunnableConfig) -> str:
     meta = state["meta"]
     security = state["security"]
     if meta["relevant_to_notion_scope"] and security["is_safe"]:
-        return "retrieve"
+        return "resolve_resources"
     return "malovolent_request"
 
 def route_after_egress(state: PipelineState, config: RunnableConfig) -> str:

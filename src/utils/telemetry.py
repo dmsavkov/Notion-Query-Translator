@@ -6,6 +6,7 @@ execution we can deterministically read back which pages were touched.
 """
 
 import textwrap
+import json
 
 # The file path where affected IDs are written inside the execution environment.
 AFFECTED_IDS_PATH = "/tmp/affected_ids.json"
@@ -43,6 +44,14 @@ _TELEMETRY_HEADER = textwrap.dedent("""\
     __sys_requests.Session.request = __telemetry_request
 """)
 
+def _get_telemetry_header_with_map(resource_map: dict) -> str:
+    import json as __sys_json
+    resource_map_json = __sys_json.dumps(resource_map or {})
+    return _TELEMETRY_HEADER + f"""
+# --- resource map ---
+RESOURCE_MAP = {resource_map_json}
+"""
+
 
 def _telemetry_footer(output_path: str) -> str:
     """Generate the footer code that dumps collected IDs to a JSON file."""
@@ -58,15 +67,17 @@ def _telemetry_footer(output_path: str) -> str:
     """)
 
 
-def wrap_code_with_telemetry(code: str, *, local: bool = False) -> str:
+def wrap_code_with_telemetry(code: str, *, local: bool = False, resource_map: dict = None) -> str:
     """Wrap LLM-generated code with the telemetry prepend/append sandwich.
 
     Args:
         code: The raw Python code string produced by codegen.
         local: If True, use a workspace-relative output path instead of /tmp.
+        resource_map: Mapping of page titles to IDs to inject into the execution scope.
 
     Returns:
         The instrumented code string ready for execution.
     """
+    header = _get_telemetry_header_with_map(resource_map)
     output_path = LOCAL_AFFECTED_IDS_PATH if local else AFFECTED_IDS_PATH
-    return f"{_TELEMETRY_HEADER}\n{code}\n{_telemetry_footer(output_path)}"
+    return f"{header}\n{code}\n{_telemetry_footer(output_path)}"

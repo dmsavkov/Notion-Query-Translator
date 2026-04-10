@@ -26,7 +26,8 @@ The agent will:
 
 ## ✨ Key Features
 
-- **Agentic Workflow**: Uses a state machine (`retrieve` → `plan` → `codegen` → `execute` → `reflect`) to ensure high-reliability code generation.
+- **Agentic Workflow**: Uses a state machine (`precheck` → `resolve` → `retrieve` → `plan` → `codegen` → `execute` → `reflect`) to ensure high-reliability code generation.
+- **Interactive Entity Resolution**: A human-in-the-loop mechanism that automatically queries Notion for page titles mentioned in the prompt and uses a rich terminal UI to ask the user to disambiguate if multiple pages share the same name.
 - **Local RAG Pipeline**: Ingests Notion documentation into a local [Qdrant](https://qdrant.tech/) vector database, chunked optimally with `chonkie` and embedded using `fastembed`.
 - **Advanced Query Engineering**: Implements Multi-Query, Chain-of-Thought (CoT) Decomposition, and Domain Decomposition to maximize retrieval accuracy.
 - **Evaluation Harness**: Deep integration with [LangSmith](https://smith.langchain.com/) for running deterministic, synthetic API benchmarks (`evals/`) across different LLM models (e.g., Google Gemini, Gemma).
@@ -91,6 +92,7 @@ python scripts/build_rag.py
 Command Line Interface (CLI)
 
 The project includes a CLI powered by Typer with a rich terminal UI. When you run a command, you'll see:
+
 - A **splash screen** introducing the application.
 - A **dynamic spinner** that updates in real-time as the agent progresses through its pipeline stages (precheck → retrieve → codegen → execute → reflect).
 - **Beautiful page rendering** — affected Notion pages are fetched and displayed with rich property tables and formatted markdown.
@@ -107,6 +109,7 @@ notion-agent run "Find all unstarted urgent tasks and mark them as Do Now" --thi
 ```
 
 Example output:
+
 ```
  ╔══════════════════════════════════════════════════════╗
  ║          Notion Query Translator  v0.1              ║

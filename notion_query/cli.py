@@ -12,6 +12,7 @@ import logging
 import os
 import sys
 from contextlib import redirect_stdout
+from typing import List, Dict, Optional
 
 import typer
 from rich.console import Console
@@ -22,6 +23,7 @@ from src.core.lifecycle import run_with_lifecycle
 from src.models.config import AppConfig
 from src.models.schema import CliParams, build_cli_eval_tasks
 from src.presentation import ui_bridge
+from src.presentation.cli_helpers import cli_disambiguator
 from src.presentation.viewer import print_completed_state
 
 app = typer.Typer(help="Notion Query Translator — natural language to Notion API.")
@@ -131,6 +133,7 @@ def run(
     # Reset bridge state
     ui_bridge.current_node = "initializing"
     ui_bridge.trial_num = 0
+    ui_bridge.disambiguator = cli_disambiguator
 
     try:
         cli_params = CliParams(user_prompt=user_prompt, think=think)

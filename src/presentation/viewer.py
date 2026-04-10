@@ -141,6 +141,28 @@ def print_completed_state(final_state: Dict[str, Any]) -> None:
         )
         return
 
+    if terminal_status == "resource_not_found":
+        error_detail = final_state.get("execution_output", "Resource search failed.")
+        console.print(
+            Panel(
+                f"[bold yellow]🔍 {error_detail}[/bold yellow]\n\nPlease check the spelling of the page in Notion and try again.",
+                title="Search Failed",
+                border_style="yellow",
+            )
+        )
+        return
+
+    if terminal_status == "ambiguity_unresolved":
+        error_detail = final_state.get("execution_output", "Selection was cancelled.")
+        console.print(
+            Panel(
+                f"[bold cyan]ℹ️ {error_detail}[/bold cyan]\n\nThe request was stopped because the correct page could not be identified.",
+                title="Resolution Cancelled",
+                border_style="cyan",
+            )
+        )
+        return
+
     # --- Success path ---
     if not affected_ids:
         # Show raw execution output when no specific pages were affected

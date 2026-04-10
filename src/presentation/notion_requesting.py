@@ -44,6 +44,29 @@ def fetch_page_properties(page_id: str) -> Dict[str, Any]:
     return _request_notion_json(f"{NOTION_API_BASE}/pages/{page_id}")
 
 
+def search_pages_by_title(title: str, limit: int = 10) -> list[Dict[str, Any]]:
+    """Search for Notion pages matching the given title."""
+    payload = {
+        "query": title,
+        "filter": {"value": "page", "property": "object"},
+        "page_size": limit,
+    }
+    response = requests.post(
+        f"{NOTION_API_BASE}/search",
+        headers=_notion_headers(),
+        json=payload,
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError("Expected Notion API to return a JSON object")
+    
+    results = payload.get("results", [])
+    return [r for r in results if not r.get("archived")]
+
+
+
 def fetch_page_markdown(
     page_id: str, *, include_transcript: bool = False
 ) -> str:

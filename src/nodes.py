@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import sys
+import sys
 from contextlib import suppress
 from functools import partial
 from pathlib import Path
@@ -33,6 +34,8 @@ from .utils.telemetry import (
     LOCAL_AFFECTED_IDS_PATH,
     wrap_code_with_telemetry,
 )
+from .presentation import ui_bridge
+from .presentation.notion_requesting import search_pages_by_title
 
 
 async def _create_queries(
@@ -68,7 +71,10 @@ async def precheck_general_node(state: Dict[str, Any], config: RunnableConfig) -
         model_temperature=float(precheck_params.general.model_temperature),
         max_tokens=precheck_params.general.max_tokens,
     )
-    return {"meta": meta}
+    return {
+        "meta": meta,
+        "required_resources": meta.get("required_resources", []),
+    }
 
 
 async def precheck_security_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
@@ -97,6 +103,76 @@ async def precheck_security_node(state: Dict[str, Any], config: RunnableConfig) 
 
 async def precheck_join_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
     return {}
+
+
+async def resolve_resources_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    required = state.get("required_resources", [])
+    if not required:
+        return {"resource_map": {}}
+
+    resource_map = dict(state.get("resource_map", {}))
+    
+    for title in required:
+        if title in resource_map:
+            continue
+
+        try:
+            results = search_pages_by_title(title=title, limit=10)
+        except Exception as e:
+            return {
+                "terminal_status": "execution_failed",
+                "execution_output": f"Failed to search Notion for '{title}': {e}"
+            }
+
+        if not results:
+            return {
+                "terminal_status": "resource_not_found",
+                "execution_output": f"Could not find any Notion page matching the title: '{title}'"
+            }
+
+        if len(results) == 1:
+            resource_map[title] = results[0]["id"]
+            continue
+
+        # Multiple results found - Disambiguate
+        if ui_bridge.disambiguator is not None:
+            # Interactive mode
+            options = []
+            for r in results:
+                props = r.get("properties", {})
+                t_text = "Untitled"
+                for p in props.values():
+                    if p.get("type") == "title":
+                        t_text = "".join([t.get("plain_text", "") for t in p.get("title", [])])
+                        break
+                options.append({"id": r["id"], "title": t_text, "url": r.get("url")})
+
+            # Hand over to CLI
+            selected_id = await ui_bridge.disambiguator(title, options)
+            if not selected_id:
+                return {
+                    "terminal_status": "ambiguity_unresolved",
+                    "execution_output": f"User cancelled disambiguation for '{title}'"
+                }
+            resource_map[title] = selected_id
+        else:
+            # Non-interactive mode (tests/evals) - Fail with options
+            option_titles = []
+            for r in results:
+                props = r.get("properties", {})
+                t_text = "Untitled"
+                for p in props.values():
+                    if p.get("type") == "title":
+                        t_text = "".join([t.get("plain_text", "") for t in p.get("title", [])])
+                        break
+                option_titles.append(f"{t_text} ({r['id']})")
+            
+            return {
+                "terminal_status": "resource_not_found",
+                "execution_output": f"Ambiguity found for '{title}' (found {len(results)} matches) but no disambiguator available. Options: {', '.join(option_titles)}"
+            }
+
+    return {"resource_map": resource_map}
 
 
 async def malovolent_request_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
@@ -205,8 +281,14 @@ async def codegen_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
     assert state.get("general_info"), "Missing 'general_info' in state before code generation."
 
     configurable = config.get("configurable", {})
+    general_info_with_resources = state["general_info"]
+    resource_map = state.get("resource_map", {})
+    if resource_map:
+        res_text = "\n".join([f"  - '{k}': {v}" for k, v in resource_map.items()])
+        general_info_with_resources += f"\n\n<resource_map_context>\nThe following titles have already been resolved to Notion IDs. You MUST use these IDs when interacting with these specific resources. A variable named `RESOURCE_MAP` (dict) containing these mappings is injected into your global scope.\n{res_text}\n</resource_map_context>"
+
     code_result = await generate_code(
-        general_info=state["general_info"],
+        general_info=general_info_with_resources,
         test_code="No tests are used.",
         feedback=state.get("feedback"),
         model_size=str(configurable["agent_params"].code_generator.model_name),
@@ -236,7 +318,8 @@ async def execute_local_node(state: Dict[str, Any], config: RunnableConfig) -> D
     assert "generated_code" in state, "Missing 'generated_code' in state before execution."
 
     raw_code = str(state.get("generated_code") or "")
-    instrumented_code = wrap_code_with_telemetry(raw_code, local=True)
+    resource_map = state.get("resource_map", {})
+    instrumented_code = wrap_code_with_telemetry(raw_code, local=True, resource_map=resource_map)
     result = await asyncio.to_thread(run_isolated_code, code=instrumented_code, task_id=state["task_id"])
     update_data = _execution_state_update(result)
 
@@ -265,7 +348,8 @@ async def execute_sandbox_node(state: Dict[str, Any], config: RunnableConfig) ->
     sandbox_id = state.get("sandbox_id")
 
     raw_code = str(state.get("generated_code") or "")
-    instrumented_code = wrap_code_with_telemetry(raw_code, local=False)
+    resource_map = state.get("resource_map", {})
+    instrumented_code = wrap_code_with_telemetry(raw_code, local=False, resource_map=resource_map)
 
     try:
         sandbox = await asyncio.to_thread(
