@@ -160,6 +160,7 @@ class PipelineState(TypedDict):
     final_code: str
     terminal_status: TerminalStatus
     queries: Annotated[List[str], operator.add]
+    resource_map: Dict[str, str]
     sandbox_id: Optional[str]
     affected_notion_ids: List[str]
 
@@ -194,6 +195,7 @@ def generate_default_state() -> PipelineState:
         "final_code": "",
         "terminal_status": "pending",
         "queries": [],
+        "resource_map": {},
         "sandbox_id": None,
         "affected_notion_ids": [],
     }

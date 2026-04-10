@@ -5,7 +5,7 @@ from src.nodes import resolve_resources_node
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_resolve_resources_node_no_required_returns_empty_map():
-    state = {"required_resources": []}
+    state = {"meta": {"required_resources": []}}
     config = {}
     result = await resolve_resources_node(state, config)
     assert result == {"resource_map": {}}
@@ -15,7 +15,7 @@ async def test_resolve_resources_node_no_required_returns_empty_map():
 @patch("src.nodes.search_pages_by_title")
 async def test_resolve_resources_node_single_match(mock_search):
     mock_search.return_value = [{"id": "notion-id-123"}]
-    state = {"required_resources": ["My Page"]}
+    state = {"meta": {"required_resources": ["My Page"]}}
     config = {}
     
     result = await resolve_resources_node(state, config)
@@ -26,7 +26,7 @@ async def test_resolve_resources_node_single_match(mock_search):
 @patch("src.nodes.search_pages_by_title")
 async def test_resolve_resources_node_multiple_matches_no_disambiguator(mock_search):
     mock_search.return_value = [{"id": "id-1", "properties": {}}, {"id": "id-2", "properties": {}}]
-    state = {"required_resources": ["Ambig Page"]}
+    state = {"meta": {"required_resources": ["Ambig Page"]}}
     config = {}
     
     with patch("src.nodes.ui_bridge") as mock_bridge:
@@ -41,7 +41,7 @@ async def test_resolve_resources_node_multiple_matches_no_disambiguator(mock_sea
 @patch("src.nodes.search_pages_by_title")
 async def test_resolve_resources_node_multiple_matches_with_disambiguator(mock_search):
     mock_search.return_value = [{"id": "id-1", "properties": {}}, {"id": "id-2", "properties": {}}]
-    state = {"required_resources": ["Ambig Page"]}
+    state = {"meta": {"required_resources": ["Ambig Page"]}}
     config = {}
     
     mock_disambiguator = AsyncMock(return_value="id-2")
@@ -58,7 +58,7 @@ async def test_resolve_resources_node_multiple_matches_with_disambiguator(mock_s
 @patch("src.nodes.search_pages_by_title")
 async def test_resolve_resources_node_missing_page(mock_search):
     mock_search.return_value = []
-    state = {"required_resources": ["Non Existent"]}
+    state = {"meta": {"required_resources": ["Non Existent"]}}
     config = {}
     
     result = await resolve_resources_node(state, config)

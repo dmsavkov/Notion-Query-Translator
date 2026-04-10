@@ -4,7 +4,6 @@ import asyncio
 import json
 import os
 import sys
-import sys
 from contextlib import suppress
 from functools import partial
 from pathlib import Path
@@ -36,6 +35,7 @@ from .utils.telemetry import (
 )
 from .presentation import ui_bridge
 from .presentation.notion_requesting import search_pages_by_title
+from langsmith import traceable
 
 
 async def _create_queries(
@@ -73,7 +73,6 @@ async def precheck_general_node(state: Dict[str, Any], config: RunnableConfig) -
     )
     return {
         "meta": meta,
-        "required_resources": meta.get("required_resources", []),
     }
 
 
@@ -105,8 +104,10 @@ async def precheck_join_node(state: Dict[str, Any], config: RunnableConfig) -> D
     return {}
 
 
+@traceable(name="resolve_resources_node")
 async def resolve_resources_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
-    required = state.get("required_resources", [])
+    meta = state.get("meta", {})
+    required = meta.get("required_resources", [])
     if not required:
         return {"resource_map": {}}
 
