@@ -75,6 +75,23 @@ async def test_resolve_resources_node_multiple_matches_with_disambiguator(mock_s
     assert result["resource_map"]["Ambig Page"] == "id-2"
     mock_disambiguator.assert_awaited_once()
 
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@patch("src.nodes.search_pages_by_title")
+async def test_resolve_resources_node_multiple_matches_with_cancel(mock_search):
+    mock_search.return_value = [{"id": "id-1", "properties": {}}, {"id": "id-2", "properties": {}}]
+    state = {"meta": {"required_resources": ["Ambig Page"]}}
+    config = {}
+
+    with patch("src.nodes.ui_bridge") as mock_bridge:
+        mock_bridge.disambiguator = AsyncMock(return_value="__cancel_disambiguation__")
+        mock_bridge.DISAMBIGUATION_CANCELLED = "__cancel_disambiguation__"
+        result = await resolve_resources_node(state, config)
+
+    assert result["terminal_status"] == "ambiguity_unresolved"
+    assert "User cancelled disambiguation" in result["execution_output"]
+
 @pytest.mark.unit
 @pytest.mark.asyncio
 @patch("src.nodes.search_pages_by_title")

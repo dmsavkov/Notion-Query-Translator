@@ -15,3 +15,6 @@ trial_num: int = 0
 # Interactive callback for resource disambiguation.
 # Signature: async def (title: str, options: list[dict]) -> str
 disambiguator: Any = None
+
+# Sentinel returned by the CLI cancel choice.
+DISAMBIGUATION_CANCELLED: str = "__cancel_disambiguation__"

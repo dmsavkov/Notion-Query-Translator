@@ -7,6 +7,8 @@ from typing import Dict, List, Optional
 
 import questionary
 
+from . import ui_bridge
+
 
 @contextmanager
 def _interactive_stdio():
@@ -24,6 +26,19 @@ def _interactive_stdio():
     finally:
         sys.stdin = previous_stdin
         sys.stdout = previous_stdout
+
+
+def _emit_prompt_gap() -> None:
+    """Insert a visible gap before the interactive selection prompt."""
+    for stream in (sys.__stderr__, sys.__stdout__):
+        if stream is None:
+            continue
+        try:
+            stream.write("\n")
+            stream.flush()
+        except Exception:
+            continue
+
 
 async def cli_disambiguator(title: str, options: List[Dict[str, str]]) -> Optional[str]:
     """Interactive questionary prompt for resource resolution."""
@@ -45,24 +60,32 @@ async def cli_disambiguator(title: str, options: List[Dict[str, str]]) -> Option
             )
         )
     
-    choices.append(questionary.Choice(title="[None of above - Cancel]", value=None))
+    choices.append(
+        questionary.Choice(title="[Cancel selection]", value=ui_bridge.DISAMBIGUATION_CANCELLED)
+    )
 
-    with _interactive_stdio():
-        answer = await questionary.select(
-            f"Multiple pages found for '{title}'. Please select the correct one:",
-            choices=choices,
-            style=questionary.Style([
-                ("qmark", "fg:#673ab7 bold"),
-                ("question", "bold"),
-                ("answer", "fg:#f44336 bold"),
-                ("pointer", "fg:#673ab7 bold"),
-                ("highlighted", "fg:#673ab7 bold"),
-                ("selected", "fg:#cc9900"),
-                ("separator", "fg:#cc5454"),
-                ("instruction", ""),
-                ("text", ""),
-                ("disabled", "fg:#858585 italic"),
-            ]),
-        ).ask_async()
+    previous_node = ui_bridge.current_node
+    ui_bridge.current_node = "awaiting_disambiguation"
+    try:
+        _emit_prompt_gap()
+        with _interactive_stdio():
+            answer = await questionary.select(
+                f"Multiple pages found for '{title}'. Please select the correct one:",
+                choices=choices,
+                style=questionary.Style([
+                    ("qmark", "fg:#673ab7 bold"),
+                    ("question", "bold"),
+                    ("answer", "fg:#f44336 bold"),
+                    ("pointer", "fg:#673ab7 bold"),
+                    ("highlighted", "fg:#673ab7 bold"),
+                    ("selected", "fg:#cc9900"),
+                    ("separator", "fg:#cc5454"),
+                    ("instruction", ""),
+                    ("text", ""),
+                    ("disabled", "fg:#858585 italic"),
+                ]),
+            ).ask_async()
+    finally:
+        ui_bridge.current_node = previous_node
 
     return answer

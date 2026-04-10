@@ -206,7 +206,7 @@ async def resolve_resources_node(state: Dict[str, Any], config: RunnableConfig) 
                     "execution_output": f"Disambiguation failed for '{title}': {e}",
                     "resource_map": resource_map,
                 }
-            if not selected_id:
+            if not selected_id or selected_id == ui_bridge.DISAMBIGUATION_CANCELLED:
                 return {
                     "terminal_status": "ambiguity_unresolved",
                     "execution_output": f"User cancelled disambiguation for '{title}'",

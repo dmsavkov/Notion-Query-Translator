@@ -37,6 +37,7 @@ STATUS_MAP = {
     "precheck_general": "[dim]Running general precheck...[/dim]",
     "precheck_security": "[dim]Scanning request for safety...[/dim]",
     "precheck_join": "[dim]Collecting precheck results...[/dim]",
+    "awaiting_disambiguation": "[bold cyan]Waiting for your selection...[/bold cyan]",
     "malovolent_request": "[bold red]Request flagged — preparing rejection...[/bold red]",
     "retrieve": "[bold cyan]Retrieving Notion API documentation...[/bold cyan]",
     "plan": "[bold cyan]Planning the implementation...[/bold cyan]",
