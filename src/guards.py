@@ -45,7 +45,10 @@ GET, POST, PATCH, DELETE, UNKNOWN
 
 <guidance>
 Estimate complexity by considering likely number of steps, transformations, and scope touched.
-Collect all page or database titles mentioned in the query into 'required_resources' (List of strings). If none, return [].
+Collect only titles that must already exist and be resolved before execution into 'required_resources' (List of strings).
+Do NOT include names for new objects that the request is creating (for example, "create page named X").
+Do NOT include Notion property names (for example, Status, Due date).
+If none need prior resolution, return [].
 Do not output dangerousness flags.
 Do not output n_steps.
 </guidance>
@@ -69,6 +72,16 @@ Do not output n_steps.
     "complexity_label": "simple",
     "request_type": "POST",
     "required_resources": ["Validation Node"]
+}}</output>
+</example>
+<example>
+<query>Create a new page in Projects called 'Atlas Launch'.</query>
+<output>{{
+    "reasoning": "Creation request; the new page title does not need pre-resolution.",
+    "relevant_to_notion_scope": true,
+    "complexity_label": "simple",
+    "request_type": "POST",
+    "required_resources": []
 }}</output>
 </example>
 <example>

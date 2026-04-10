@@ -11,7 +11,7 @@
     relevant_to_notion_scope: true
     complexity_label: "simple"
     request_type: "POST"
-    required_resources: ["Atlas Launch"]
+    required_resources: []
 - input_state:
     user_prompt: "Find the page 'Q3 Retro', rename it to 'Q3 Retrospective', and switch Status to 'In review'."
   reference_outputs:

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import warnings
 from typing import Any, Dict, Optional
 
@@ -20,6 +21,25 @@ SETTINGS = StandardEvaluationSettings(
     evals_case_type="precheck/general_precheck_v1.yaml",
     provision_infrastructure=False,
 )
+
+
+def _normalize_required_resources(value: Any) -> list[str]:
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return [cleaned] if cleaned else []
+
+    if not isinstance(value, (list, tuple, set)):
+        return []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        cleaned = str(item).strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized.append(cleaned)
+    return sorted(normalized)
 
 
 def _build_config(agent_params: Optional[AgentParams] = None) -> RunnableConfig:
@@ -44,6 +64,7 @@ def make_general_precheck_target(agent_params: Optional[AgentParams] = None):
                     "relevant_to_notion_scope": False,
                     "complexity_label": "UNKNOWN",
                     "request_type": "UNKNOWN",
+                    "required_resources": [],
                 },
                 "error": str(exc),
             }
@@ -58,11 +79,39 @@ def make_general_precheck_target(agent_params: Optional[AgentParams] = None):
                 "relevant_to_notion_scope": bool(meta.get("relevant_to_notion_scope", False)),
                 "complexity_label": str(meta.get("complexity_label") or "UNKNOWN"),
                 "request_type": str(meta.get("request_type") or "UNKNOWN").upper(),
-                "required_resources": list(meta.get("required_resources") or []),
+                "required_resources": _normalize_required_resources(meta.get("required_resources")),
             },
         }
 
     return target
+
+
+async def required_resources_match_evaluator(
+    *,
+    inputs: Dict[str, Any],
+    outputs: Dict[str, Any],
+    reference_outputs: Dict[str, Any],
+) -> Dict[str, Any]:
+    expected = _normalize_required_resources(reference_outputs.get("required_resources"))
+
+    predicted_meta = outputs.get("meta") if isinstance(outputs, dict) else {}
+    if not isinstance(predicted_meta, dict):
+        predicted_meta = {}
+    predicted = _normalize_required_resources(predicted_meta.get("required_resources"))
+
+    score = 1.0 if predicted == expected else 0.0
+    task_id = str(outputs.get("task_id") or reference_outputs.get("task_id") or inputs.get("task_id") or "")
+    return {
+        "key": "required_resources_match",
+        "score": score,
+        "comment": json.dumps(
+            {
+                "task_id": task_id,
+                "expected": expected,
+                "predicted": predicted,
+            }
+        ),
+    }
 
 
 async def run_general_precheck_evaluation(settings: Optional[StandardEvaluationSettings] = None) -> Dict[str, Any]:
@@ -83,17 +132,12 @@ async def run_general_precheck_evaluation(settings: Optional[StandardEvaluationS
             metric_key="request_type_match",
             output_container_key="meta",
         ),
-        ExactMatchEvaluator(
-            keys_to_check=["required_resources"],
-            metric_key="required_resources_match",
-            output_container_key="meta",
-        ),
     ]
 
     return await evaluation_orchestration(
         settings=final_settings,
         target=make_general_precheck_target(),
-        evaluators=[evaluator.__call__ for evaluator in evaluators],
+        evaluators=[evaluator.__call__ for evaluator in evaluators] + [required_resources_match_evaluator],
         human_config=None,
     )
 

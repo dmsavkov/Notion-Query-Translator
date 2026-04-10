@@ -24,7 +24,7 @@ from src.nodes import (
     reflect_node,
     retrieve_node,
 )
-from src.routing import route_after_codegen, route_after_egress, route_after_reflect
+from src.routing import route_after_codegen, route_after_egress, route_after_reflect, route_after_resolve_resources
 from src.utils.execution_utils import ExecutionResult
 
 
@@ -103,6 +103,16 @@ def test_route_after_reflect():
     # Failure, trial 3 (max reached)
     state_fail_3 = cast(Any, {"terminal_status": "max_retries_exceeded", "trial_num": 3})
     assert route_after_reflect(state_fail_3, config) == "__end__"
+
+
+@pytest.mark.orchestration
+def test_route_after_resolve_resources():
+    cfg = _config()
+
+    assert route_after_resolve_resources(cast(Any, {}), cfg) == "retrieve"
+    assert route_after_resolve_resources(cast(Any, {"terminal_status": "resource_not_found"}), cfg) == "__end__"
+    assert route_after_resolve_resources(cast(Any, {"terminal_status": "ambiguity_unresolved"}), cfg) == "__end__"
+    assert route_after_resolve_resources(cast(Any, {"terminal_status": "execution_failed"}), cfg) == "__end__"
 
 @pytest.mark.orchestration
 @pytest.mark.asyncio

@@ -14,11 +14,17 @@ def route_after_codegen(state: PipelineState, config: RunnableConfig) -> str:
 
 
 def route_after_precheck(state: PipelineState, config: RunnableConfig) -> str:
-    meta = state["meta"]
-    security = state["security"]
-    if meta["relevant_to_notion_scope"] and security["is_safe"]:
+    meta = state.get("meta", {})
+    security = state.get("security", {})
+    if bool(meta.get("relevant_to_notion_scope")) and bool(security.get("is_safe")):
         return "resolve_resources"
     return "malovolent_request"
+
+
+def route_after_resolve_resources(state: PipelineState, config: RunnableConfig) -> str:
+    if str(state.get("terminal_status") or "") in {"resource_not_found", "ambiguity_unresolved", "execution_failed"}:
+        return END
+    return "retrieve"
 
 def route_after_egress(state: PipelineState, config: RunnableConfig) -> str:
     pipeline_params = config.get("configurable", {}).get("pipeline_params")

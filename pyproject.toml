@@ -55,3 +55,12 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "unit: fast, deterministic logic tests",
+    "orchestration: tests for graph trajectories and logic",
+    "evaluation: tests that run LangSmith evaluation orchestration",
+    "smoke: basic connectivity and environment checks",
+    "integration: tests requiring real external services (E2B, Notion)",
+    "llm: tests that perform real LLM calls (use with VCR)",
+    "asyncio: mark test as async (via pytest-asyncio)",
+]

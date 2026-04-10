@@ -26,6 +26,7 @@ from ..routing import (
     route_after_codegen,
     route_after_egress,
     route_after_precheck,
+    route_after_resolve_resources,
     route_after_reflect,
 )
 from .execute_batch import execute_batch
@@ -60,7 +61,14 @@ def build_pipeline() -> StateGraph:
         },
     )
     graph.add_edge("malovolent_request", END)
-    graph.add_edge("resolve_resources", "retrieve")
+    graph.add_conditional_edges(
+        "resolve_resources",
+        route_after_resolve_resources,
+        {
+            "retrieve": "retrieve",
+            END: END,
+        },
+    )
     graph.add_edge("retrieve", "plan")
     graph.add_edge("plan", "codegen")
     graph.add_edge("execute_local", "egress_security")

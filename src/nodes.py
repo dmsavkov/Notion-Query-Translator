@@ -104,35 +104,80 @@ async def precheck_join_node(state: Dict[str, Any], config: RunnableConfig) -> D
     return {}
 
 
+def _normalize_required_resources(raw_required: Any) -> List[str]:
+    if isinstance(raw_required, str):
+        value = raw_required.strip()
+        return [value] if value else []
+
+    if isinstance(raw_required, (list, tuple, set)):
+        candidates = raw_required
+    else:
+        return []
+
+    normalized: List[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        value = str(item).strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+    return normalized
+
+
+def _extract_result_title(result: Dict[str, Any]) -> str:
+    props = result.get("properties")
+    if isinstance(props, dict):
+        for prop_value in props.values():
+            if not isinstance(prop_value, dict) or prop_value.get("type") != "title":
+                continue
+            title_items = prop_value.get("title")
+            if not isinstance(title_items, list):
+                continue
+            text = "".join(str(item.get("plain_text", "")) for item in title_items if isinstance(item, dict)).strip()
+            if text:
+                return text
+    return "Untitled"
+
+
 @traceable(name="resolve_resources_node")
 async def resolve_resources_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
     meta = state.get("meta", {})
-    required = meta.get("required_resources", [])
-    if not required:
-        return {"resource_map": {}}
-
+    required = _normalize_required_resources(meta.get("required_resources"))
     resource_map = dict(state.get("resource_map", {}))
+
+    if not required:
+        return {"resource_map": resource_map}
     
     for title in required:
         if title in resource_map:
             continue
 
         try:
-            results = search_pages_by_title(title=title, limit=10)
+            results = await asyncio.to_thread(search_pages_by_title, title=title, limit=10)
         except Exception as e:
             return {
                 "terminal_status": "execution_failed",
-                "execution_output": f"Failed to search Notion for '{title}': {e}"
+                "execution_output": f"Failed to search Notion for '{title}': {e}",
+                "resource_map": resource_map,
             }
 
         if not results:
             return {
                 "terminal_status": "resource_not_found",
-                "execution_output": f"Could not find any Notion page matching the title: '{title}'"
+                "execution_output": f"Could not find any Notion page matching the title: '{title}'",
+                "resource_map": resource_map,
             }
 
         if len(results) == 1:
-            resource_map[title] = results[0]["id"]
+            result_id = str(results[0].get("id", "")).strip()
+            if not result_id:
+                return {
+                    "terminal_status": "execution_failed",
+                    "execution_output": f"Notion search returned an item without an 'id' for '{title}'.",
+                    "resource_map": resource_map,
+                }
+            resource_map[title] = result_id
             continue
 
         # Multiple results found - Disambiguate
@@ -140,37 +185,47 @@ async def resolve_resources_node(state: Dict[str, Any], config: RunnableConfig) 
             # Interactive mode
             options = []
             for r in results:
-                props = r.get("properties", {})
-                t_text = "Untitled"
-                for p in props.values():
-                    if p.get("type") == "title":
-                        t_text = "".join([t.get("plain_text", "") for t in p.get("title", [])])
-                        break
-                options.append({"id": r["id"], "title": t_text, "url": r.get("url")})
+                result_id = str(r.get("id", "")).strip()
+                if not result_id:
+                    continue
+                options.append({"id": result_id, "title": _extract_result_title(r), "url": r.get("url")})
+
+            if not options:
+                return {
+                    "terminal_status": "execution_failed",
+                    "execution_output": f"Notion search returned ambiguous results without valid IDs for '{title}'.",
+                    "resource_map": resource_map,
+                }
 
             # Hand over to CLI
-            selected_id = await ui_bridge.disambiguator(title, options)
+            try:
+                selected_id = await ui_bridge.disambiguator(title, options)
+            except Exception as e:
+                return {
+                    "terminal_status": "execution_failed",
+                    "execution_output": f"Disambiguation failed for '{title}': {e}",
+                    "resource_map": resource_map,
+                }
             if not selected_id:
                 return {
                     "terminal_status": "ambiguity_unresolved",
-                    "execution_output": f"User cancelled disambiguation for '{title}'"
+                    "execution_output": f"User cancelled disambiguation for '{title}'",
+                    "resource_map": resource_map,
                 }
-            resource_map[title] = selected_id
+            resource_map[title] = str(selected_id)
         else:
             # Non-interactive mode (tests/evals) - Fail with options
             option_titles = []
             for r in results:
-                props = r.get("properties", {})
-                t_text = "Untitled"
-                for p in props.values():
-                    if p.get("type") == "title":
-                        t_text = "".join([t.get("plain_text", "") for t in p.get("title", [])])
-                        break
-                option_titles.append(f"{t_text} ({r['id']})")
+                result_id = str(r.get("id", "")).strip()
+                if not result_id:
+                    continue
+                option_titles.append(f"{_extract_result_title(r)} ({result_id})")
             
             return {
                 "terminal_status": "resource_not_found",
-                "execution_output": f"Ambiguity found for '{title}' (found {len(results)} matches) but no disambiguator available. Options: {', '.join(option_titles)}"
+                "execution_output": f"Ambiguity found for '{title}' (found {len(results)} matches) but no disambiguator available. Options: {', '.join(option_titles)}",
+                "resource_map": resource_map,
             }
 
     return {"resource_map": resource_map}
