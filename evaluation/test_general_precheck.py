@@ -58,6 +58,7 @@ def make_general_precheck_target(agent_params: Optional[AgentParams] = None):
                 "relevant_to_notion_scope": bool(meta.get("relevant_to_notion_scope", False)),
                 "complexity_label": str(meta.get("complexity_label") or "UNKNOWN"),
                 "request_type": str(meta.get("request_type") or "UNKNOWN").upper(),
+                "required_resources": list(meta.get("required_resources") or []),
             },
         }
 
@@ -80,6 +81,11 @@ async def run_general_precheck_evaluation(settings: Optional[StandardEvaluationS
         ExactMatchEvaluator(
             keys_to_check=["request_type"],
             metric_key="request_type_match",
+            output_container_key="meta",
+        ),
+        ExactMatchEvaluator(
+            keys_to_check=["required_resources"],
+            metric_key="required_resources_match",
             output_container_key="meta",
         ),
     ]

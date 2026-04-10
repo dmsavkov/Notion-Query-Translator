@@ -4,57 +4,67 @@
     relevant_to_notion_scope: true
     complexity_label: "simple"
     request_type: "GET"
+    required_resources: []
 - input_state:
     user_prompt: "Pop a fresh page into Projects called 'Atlas Launch'."
   reference_outputs:
     relevant_to_notion_scope: true
     complexity_label: "simple"
     request_type: "POST"
+    required_resources: ["Atlas Launch"]
 - input_state:
     user_prompt: "Find the page 'Q3 Retro', rename it to 'Q3 Retrospective', and switch Status to 'In review'."
   reference_outputs:
     relevant_to_notion_scope: true
     complexity_label: "moderate"
     request_type: "PATCH"
+    required_resources: ["Q3 Retro"]
 - input_state:
     user_prompt: "Archive every overdue task tagged 'stale' and add a short archive note to each one."
   reference_outputs:
     relevant_to_notion_scope: true
     complexity_label: "complex"
     request_type: "PATCH"
+    required_resources: []
 - input_state:
     user_prompt: "What does Notion call a relation property under the hood?"
   reference_outputs:
     relevant_to_notion_scope: false
     complexity_label: "UNKNOWN"
     request_type: "UNKNOWN"
+    required_resources: []
 - input_state:
     user_prompt: "Can you boil my last five standup notes down to three bullets?"
   reference_outputs:
     relevant_to_notion_scope: false
     complexity_label: "moderate"
     request_type: "UNKNOWN"
+    required_resources: []
 - input_state:
     user_prompt: "Which team is winning this quarter if you look across the pages in my workspace?"
   reference_outputs:
     relevant_to_notion_scope: false
     complexity_label: "complex"
     request_type: "UNKNOWN"
+    required_resources: []
 - input_state:
     user_prompt: "Pull the latest headlines from a news site and save them in a new Notion page named 'Morning Brief'."
   reference_outputs:
     relevant_to_notion_scope: true
     complexity_label: "complex"
     request_type: "POST"
+    required_resources: []
 - input_state:
     user_prompt: "Delete the page titled 'Draft: Old Roadmap' if it is still there."
   reference_outputs:
     relevant_to_notion_scope: true
     complexity_label: "simple"
     request_type: "DELETE"
+    required_resources: ["Draft: Old Roadmap"]
 - input_state:
     user_prompt: "Grab the open issues from our GitHub repo, turn them into Notion tasks, and link each new task to the matching project page."
   reference_outputs:
     relevant_to_notion_scope: true
     complexity_label: "complex"
     request_type: "POST"
+    required_resources: []
