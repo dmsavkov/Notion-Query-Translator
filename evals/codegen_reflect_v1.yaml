@@ -1,0 +1,111 @@
+- task_id: cg_reflect_create_related_task_checklist
+  task: "In Sandbox Tasks, create a task titled 'Architecture Review', relate it to project 'AI Research', and add checklist items 'Review Postgres' and 'Review MongoDB' in the new page."
+  input_state:
+    user_prompt: "In Sandbox Tasks, create a task titled 'Architecture Review', relate it to project 'AI Research', and add checklist items 'Review Postgres' and 'Review MongoDB' in the new page."
+    start_as_node: "plan"
+    interrupt_before:
+      - "cleanup_sandbox"
+    static_context_name: "database_schema_report_comprehensive__notion_api_top25_20220628"
+  reference_outputs:
+    correct_statements:
+      - "Creates a task page via POST https://api.notion.com/v1/pages with parent.database_id pointing to the tasks database id."
+      - "Task Name is set through a title property payload for 'Architecture Review'."
+      - "Project relation is set using {'Project': {'relation': [{'id': '<resolved_or_env_project_id>'}]}}."
+      - "Checklist is represented as to_do children blocks with text 'Review Postgres' and 'Review MongoDB'."
+      - "HTTP headers include Notion-Version: 2022-06-28."
+
+- task_id: cg_reflect_propagate_done_blocking
+  task: "Check task 'New problem'. If its Status is Done, mark every task in its Blocking relation as Done."
+  input_state:
+    user_prompt: "Check task 'New problem'. If its Status is Done, mark every task in its Blocking relation as Done."
+    start_as_node: "plan"
+    interrupt_before:
+      - "cleanup_sandbox"
+    static_context_name: "database_schema_report_comprehensive__notion_api_top25_20220628"
+  reference_outputs:
+    correct_statements:
+      - "Finds 'New problem' using POST https://api.notion.com/v1/databases/{tasks_database_id}/query with a Name title equals filter."
+      - "Checks parent task status from properties.Status.select.name and proceeds only when status is 'Done'."
+      - "Reads blocked ids from properties.Blocking.relation."
+      - "Patches each blocked page via PATCH https://api.notion.com/v1/pages/{blocked_task_id}."
+      - "PATCH payload updates Status select name to 'Done'."
+
+- task_id: cg_reflect_update_imminent_intensity
+  task: "Find tasks due in exactly 3 days and set Intensity to 8."
+  input_state:
+    user_prompt: "Find tasks due in exactly 3 days and set Intensity to 8."
+    start_as_node: "plan"
+    interrupt_before:
+      - "cleanup_sandbox"
+    static_context_name: "database_schema_report_comprehensive__notion_api_top25_20220628"
+  reference_outputs:
+    correct_statements:
+      - "Computes target date as today plus timedelta(days=3) and formats it as YYYY-MM-DD."
+      - "Queries tasks by Due Date equals target date using POST https://api.notion.com/v1/databases/{tasks_database_id}/query."
+      - "Patches matching tasks through PATCH https://api.notion.com/v1/pages/{page_id}."
+      - "PATCH body sets Intensity using {'properties': {'Intensity': {'select': {'name': '8'}}}}."
+      - "Uses requests calls with Notion authorization and version headers."
+
+- task_id: cg_reflect_archive_stale_tasks
+  task: "Archive tasks where Last Reviewed is older than 30 days and add comment 'This task is stale. Archived.' to each."
+  input_state:
+    user_prompt: "Archive tasks where Last Reviewed is older than 30 days and add comment 'This task is stale. Archived.' to each."
+    start_as_node: "plan"
+    interrupt_before:
+      - "cleanup_sandbox"
+    static_context_name: "database_schema_report_comprehensive__notion_api_top25_20220628"
+  reference_outputs:
+    correct_statements:
+      - "Computes stale cutoff date as today minus 30 days."
+      - "Queries tasks filtering Last Reviewed using date.before or date.on_or_before cutoff."
+      - "Adds comment via POST https://api.notion.com/v1/comments with parent.page_id."
+      - "Comment text contains exactly 'This task is stale. Archived.'."
+      - "Archives each stale page with PATCH https://api.notion.com/v1/pages/{page_id} and body {'archived': True}."
+
+- task_id: cg_reflect_emergency_do_now
+  task: "Find unstarted but extremely urgent tasks and mark Do Now to true."
+  input_state:
+    user_prompt: "Find unstarted but extremely urgent tasks and mark Do Now to true."
+    start_as_node: "plan"
+    interrupt_before:
+      - "cleanup_sandbox"
+    static_context_name: "database_schema_report_comprehensive__notion_api_top25_20220628"
+  reference_outputs:
+    correct_statements:
+      - "Uses a compound AND filter with Status equals 'Not started' and Urgency equals '4'."
+      - "Retrieves candidate tasks via POST https://api.notion.com/v1/databases/{tasks_database_id}/query."
+      - "Patches each matching task via PATCH https://api.notion.com/v1/pages/{page_id}."
+      - "PATCH payload sets Do Now checkbox to true."
+      - "Implementation loops over query results and updates each matching id."
+
+- task_id: cg_reflect_update_seed_task_status
+  task: "Using NOTION_ID_UPDATE_PAGE_ID, set that task Status to Done and clear Due Date."
+  input_state:
+    user_prompt: "Using NOTION_ID_UPDATE_PAGE_ID, set that task Status to Done and clear Due Date."
+    start_as_node: "plan"
+    interrupt_before:
+      - "cleanup_sandbox"
+    static_context_name: "database_schema_report_comprehensive__notion_api_top25_20220628"
+  reference_outputs:
+    correct_statements:
+      - "Loads target page id from os.getenv('NOTION_ID_UPDATE_PAGE_ID')."
+      - "Calls PATCH https://api.notion.com/v1/pages/{page_id}."
+      - "PATCH payload sets Status select name to 'Done'."
+      - "PATCH payload clears Due Date by setting date.start to null or None."
+      - "Headers include Authorization bearer token and Notion-Version: 2022-06-28."
+
+- task_id: cg_reflect_append_inbox_checklist
+  task: "Append checklist items 'Read documentation', 'Draft code', and 'Test API' to the sandbox inbox page."
+  input_state:
+    user_prompt: "Append checklist items 'Read documentation', 'Draft code', and 'Test API' to the sandbox inbox page."
+    start_as_node: "plan"
+    interrupt_before:
+      - "cleanup_sandbox"
+    static_context_name: "database_schema_report_comprehensive__notion_api_top25_20220628"
+  reference_outputs:
+    correct_statements:
+      - "Loads inbox page id from os.getenv('NOTION_INBOX_PAGE_ID')."
+      - "Uses PATCH https://api.notion.com/v1/blocks/{page_id}/children."
+      - "Sends a top-level children array containing to_do blocks."
+      - "to_do rich_text includes all three strings: Read documentation, Draft code, and Test API."
+      - "Each to_do block sets checked to false (or omits checked, which defaults to false)."

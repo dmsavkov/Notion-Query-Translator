@@ -3,6 +3,7 @@ from .shared import (
 	ExactMatchEvaluator,
 	evaluation_orchestration,
 	make_live_eval_target,
+	make_partial_live_eval_target,
 )
 from .utils import (
 	EvaluationSettings,
@@ -30,5 +31,6 @@ __all__ = [
 	"flash_sandbox_databases",
 	"load_eval_tasks_or_raise",
 	"make_live_eval_target",
+	"make_partial_live_eval_target",
 	"provision_infrastructure",
 ]
