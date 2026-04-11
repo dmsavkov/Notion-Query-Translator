@@ -24,6 +24,15 @@ CODEGEN_ENV_CONTEXT = (
     "</notion_env_keys>"
 )
 
+CODEGEN_RESOURCE_MAP_POLICY = (
+    "<resource_map_policy>\n"
+    "  • You MUST NOT use the Notion Search endpoint or write database filter queries to find pages by TITLE.\n"
+    "  • You MUST use the exact UUIDs provided in the RESOURCE_MAP below.\n"
+    "  • If a requested page title is not in the RESOURCE_MAP, do not guess or write a search script.\n"
+    "  • Return the exact string: ERROR: PAGE_NOT_IN_MAP\n"
+    "</resource_map_policy>"
+)
+
 
 JUDGE_SYSTEM = """\
 You are an unforgiving, expert-level code evaluation judge. Your standards are extremely high.
@@ -290,6 +299,7 @@ def build_generate_code_prompt(
         f"{general_info}\n"
         f"{feedback_block}\n"
         f"{CODEGEN_ENV_CONTEXT}\n\n"
+        f"{CODEGEN_RESOURCE_MAP_POLICY}\n\n"
         "<tests_to_pass>\n"
         f"{test_code}\n"
         "</tests_to_pass>\n\n"
