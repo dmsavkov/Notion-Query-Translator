@@ -11,6 +11,7 @@ import asyncio
 import logging
 import os
 from contextlib import redirect_stdout
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -22,6 +23,13 @@ from src.models.config import AppConfig
 from src.models.schema import CliParams, build_cli_eval_tasks
 from src.presentation import ui_bridge
 from src.presentation.cli_helpers import cli_disambiguator
+from src.presentation.cli_shell import (
+    ShellSettings,
+    create_prompt_session,
+    dispatch_shell_input,
+    format_shell_status,
+    get_animated_input,
+)
 from src.presentation.viewer import print_completed_state
 
 app = typer.Typer(help="Notion Query Translator — natural language to Notion API.")
@@ -111,9 +119,88 @@ async def _run_with_spinner(
     return result
 
 
+async def _run_iteration_async(*, user_prompt: str, think: bool) -> dict[str, Any]:
+    # Reset bridge state for each independent turn
+    ui_bridge.current_node = "initializing"
+    ui_bridge.trial_num = 0
+    ui_bridge.disambiguator = cli_disambiguator
+
+    cli_params = CliParams(user_prompt=user_prompt, think=think)
+    app_config = build_app_config_from_cli(cli_params=cli_params)
+    eval_tasks = build_cli_eval_tasks(cli_params)
+
+    result = await _run_with_spinner(tasks=eval_tasks, app_config=app_config)
+    task_result = result.get("user_request", {})
+    print_completed_state(task_result)
+    return task_result
+
+
+def _run_iteration(*, user_prompt: str, think: bool) -> dict[str, Any]:
+    return asyncio.run(_run_iteration_async(user_prompt=user_prompt, think=think))
+
+
+def _render_shell_startup(settings: ShellSettings) -> None:
+    console.print(SPLASH)
+    console.print(f"[dim]{format_shell_status(settings)}[/dim]\n")
+
+
+def interactive_shell(*, initial_think: bool = False) -> None:
+    settings = ShellSettings(think=initial_think)
+
+    _render_shell_startup(settings)
+
+    while True:
+        session = create_prompt_session()
+        try:
+            user_input = asyncio.run(get_animated_input(session))
+        except KeyboardInterrupt:
+            console.print("[bold purple]Bye![/bold purple]")
+            break
+        except EOFError:
+            console.print("[bold purple]Bye![/bold purple]")
+            break
+        except Exception as exc:
+            console.print(Panel(f"[bold red]Prompt error:[/bold red] {exc}", border_style="red"))
+            continue
+
+        dispatch = dispatch_shell_input(user_input, settings)
+        if dispatch.message:
+            console.print(dispatch.message)
+
+        if dispatch.action == "exit":
+            console.print("[bold purple]Bye![/bold purple]")
+            break
+
+        if dispatch.action == "clear":
+            console.clear()
+            _render_shell_startup(settings)
+            continue
+
+        if dispatch.action != "run":
+            continue
+
+        console.print(f"[bold]Prompt:[/bold] {dispatch.prompt}\n")
+        try:
+            task_result = _run_iteration(user_prompt=dispatch.prompt, think=settings.think)
+        except KeyboardInterrupt:
+            console.print("[yellow]Run interrupted. Back to prompt.[/yellow]\n")
+            continue
+        except Exception as exc:
+            console.print(Panel(f"[bold red]Fatal error:[/bold red] {exc}", border_style="red"))
+            continue
+
+        if task_result.get("error"):
+            console.print("[yellow]Run finished with errors. Ready for next prompt.[/yellow]\n")
+        else:
+            console.print("[dim]Ready for the next prompt.[/dim]\n")
+
+
 @app.command()
 def run(
-    user_prompt: str,
+    user_prompt: str | None = typer.Argument(
+        None,
+        help="Prompt text. Omit to start the interactive shell.",
+    ),
     think: bool = typer.Option(
         False,
         "--think",
@@ -125,42 +212,24 @@ def run(
 
     _setup_log_routing()
 
-    # Splash screen
+    if not user_prompt:
+        interactive_shell(initial_think=think)
+        return
+
+    # Single-shot behavior remains available for direct prompt invocation.
     console.print(SPLASH)
     console.print(f"[bold]Prompt:[/bold] {user_prompt}\n")
 
-    # Reset bridge state
-    ui_bridge.current_node = "initializing"
-    ui_bridge.trial_num = 0
-    ui_bridge.disambiguator = cli_disambiguator
-
     try:
-        cli_params = CliParams(user_prompt=user_prompt, think=think)
-        app_config = build_app_config_from_cli(cli_params=cli_params)
-        eval_tasks = build_cli_eval_tasks(cli_params)
-        result = asyncio.run(
-            _run_with_spinner(tasks=eval_tasks, app_config=app_config)
-        )
+        task_result = _run_iteration(user_prompt=user_prompt, think=think)
+    except KeyboardInterrupt:
+        console.print("[yellow]Interrupted.[/yellow]")
+        raise typer.Exit(code=130)
     except Exception as exc:
-        console.print(
-            Panel(
-                f"[bold red]Fatal error:[/bold red] {exc}",
-                border_style="red",
-            )
-        )
+        console.print(Panel(f"[bold red]Fatal error:[/bold red] {exc}", border_style="red"))
         raise typer.Exit(code=1)
 
-    # Extract the single task result and render it
-    task_result = result.get("user_request", {})
-    error = task_result.get("error")
-
-    # Render using the presentation layer (this goes to real stdout)
-    output_console = Console()  # fresh console on stdout
-    with output_console.capture():
-        pass  # ensure stdout is usable
-    print_completed_state(task_result)
-
-    if error:
+    if task_result.get("error"):
         raise typer.Exit(code=1)
 
 
