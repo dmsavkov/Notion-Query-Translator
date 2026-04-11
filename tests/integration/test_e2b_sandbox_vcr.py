@@ -1,11 +1,12 @@
 import os
 
 import pytest
-from dotenv import load_dotenv
+
+from notion_query.environment import load_runtime_environment
 
 from src.utils.execution_utils import get_or_create_sandbox, run_code_in_sandbox, kill_sandbox
 
-load_dotenv()
+load_runtime_environment(include_sandbox=True)
 
 # Run with: python -m pytest tests/integration/test_e2b_sandbox_vcr.py --record-mode=once
 

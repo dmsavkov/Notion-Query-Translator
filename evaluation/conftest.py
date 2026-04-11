@@ -1,0 +1,4 @@
+from notion_query.environment import load_runtime_environment
+
+
+load_runtime_environment(include_sandbox=True)

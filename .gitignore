@@ -115,6 +115,7 @@ corpora.txt
 
 # Environment variables
 .env
+.env.sandbox
 .env.local
 .env.*.local
 

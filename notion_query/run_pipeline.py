@@ -2,6 +2,7 @@ import asyncio
 import warnings
 from typing import Any, Dict, Optional
 
+from notion_query.environment import initialize_runtime_environment
 from src.adapters.cli_factory import build_app_config_from_cli
 from src.adapters.cli_presenter import format_lifecycle_result
 from src.all_functionality import load_eval_tasks
@@ -41,6 +42,8 @@ async def main(
     cli_params: Optional[CliParams] = None,
     dev_mode: bool = True,
 ) -> Dict[str, Dict[str, Any]]:
+    initialize_runtime_environment(required_keys=("NOTION_TOKEN", "GOOGLE_API_KEY"))
+
     final_static_params = static_params or StaticParams()
     final_pipeline_params = pipeline_params or PipelineParams()
     final_agent_params = agent_params or AgentParams()

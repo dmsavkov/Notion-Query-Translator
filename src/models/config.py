@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 from dataclasses import dataclass
 
-import dotenv
 import openai
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -97,17 +96,14 @@ def build_logger() -> None:
 # ── Setup Function ─────────────────────────────────────────────────────────────
 
 def setup() -> None:
-    """Load .env, configure OpenAI client, validate required environment variables, and set up logging."""
+    """Configure OpenAI defaults from already-loaded environment variables."""
     build_logger()
-    dotenv.load_dotenv()
     openai.api_key = os.getenv("GOOGLE_API_KEY")
     openai.base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
     openai.max_retries = 25
     missing = [k for k in ("GOOGLE_API_KEY",) if not os.getenv(k)]
     if missing:
         raise EnvironmentError(f"Missing required environment variables: {missing}")
-
-setup()
 
 
 # ── App-Level Runtime Config ─────────────────────────────────────────────────

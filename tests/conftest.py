@@ -3,6 +3,11 @@ import os
 import sys
 from unittest.mock import AsyncMock, patch
 
+from notion_query.environment import load_runtime_environment
+
+
+load_runtime_environment(include_sandbox=True)
+
 
 @pytest.fixture
 def mock_chat_wrapper():

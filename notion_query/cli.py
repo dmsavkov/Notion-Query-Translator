@@ -17,6 +17,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 
+from notion_query.environment import initialize_runtime_environment
 from src.adapters.cli_factory import build_app_config_from_cli
 from src.core.lifecycle import run_with_lifecycle
 from src.models.config import AppConfig
@@ -209,6 +210,12 @@ def run(
     ),
 ) -> None:
     """Run the Notion agent pipeline for a single user prompt."""
+
+    try:
+        initialize_runtime_environment(required_keys=("NOTION_TOKEN", "GOOGLE_API_KEY"))
+    except EnvironmentError as exc:
+        console.print(Panel(f"[bold red]Environment error:[/bold red] {exc}", border_style="red"))
+        raise typer.Exit(code=1)
 
     _setup_log_routing()
 

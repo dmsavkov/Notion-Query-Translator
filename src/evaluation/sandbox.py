@@ -4,18 +4,39 @@ import json
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from dotenv import load_dotenv
+from notion_query.environment import initialize_runtime_environment
 
-# Inherit existing credentials before overriding with test instances
-load_dotenv()
 
-NOTION_TOKEN = os.getenv("NOTION_TOKEN")
-SANDBOX_PARENT_PAGE_ID = os.getenv("SANDBOX_PARENT_PAGE_ID")
-HEADERS = {
-    "Authorization": f"Bearer {NOTION_TOKEN}",
-    "Content-Type": "application/json",
-    "Notion-Version": "2022-06-28"
-}
+_ENV_READY = False
+
+
+def _ensure_sandbox_environment() -> None:
+    global _ENV_READY
+    if _ENV_READY:
+        return
+    initialize_runtime_environment(
+        required_keys=("NOTION_TOKEN", "SANDBOX_PARENT_PAGE_ID"),
+        include_sandbox=True,
+    )
+    _ENV_READY = True
+
+
+def _headers() -> dict[str, str]:
+    _ensure_sandbox_environment()
+    notion_token = os.getenv("NOTION_TOKEN", "")
+    return {
+        "Authorization": f"Bearer {notion_token}",
+        "Content-Type": "application/json",
+        "Notion-Version": "2022-06-28",
+    }
+
+
+def _sandbox_parent_page_id() -> str:
+    _ensure_sandbox_environment()
+    value = (os.getenv("SANDBOX_PARENT_PAGE_ID") or "").strip()
+    if not value:
+        raise EnvironmentError("Missing required environment variable: SANDBOX_PARENT_PAGE_ID")
+    return value
 
 def search_database(title: str) -> str | None:
     url = "https://api.notion.com/v1/search"
@@ -23,7 +44,7 @@ def search_database(title: str) -> str | None:
         "query": title,
         "filter": {"value": "database", "property": "object"}
     }
-    response = requests.post(url, json=payload, headers=HEADERS)
+    response = requests.post(url, json=payload, headers=_headers())
     response.raise_for_status()
     results = response.json().get("results", [])
     for db in results:
@@ -34,7 +55,7 @@ def search_database(title: str) -> str | None:
 def get_database_schema(db_id: str) -> dict:
     """Fetch database schema and return property names and types"""
     url = f"https://api.notion.com/v1/databases/{db_id}"
-    response = requests.get(url, headers=HEADERS)
+    response = requests.get(url, headers=_headers())
     response.raise_for_status()
     data = response.json()
     
@@ -48,7 +69,7 @@ def delete_database(db_id: str) -> bool:
     """Delete a database"""
     url = f"https://api.notion.com/v1/databases/{db_id}"
     payload = {"archived": True}
-    response = requests.patch(url, json=payload, headers=HEADERS)
+    response = requests.patch(url, json=payload, headers=_headers())
     
     if response.status_code == 200:
         print(f"✓ Archived database: {db_id}")
@@ -66,7 +87,7 @@ def add_property_to_database(db_id: str, property_name: str, property_config: di
         }
     }
     
-    response = requests.patch(url, json=payload, headers=HEADERS)
+    response = requests.patch(url, json=payload, headers=_headers())
     
     if response.status_code != 200:
         print(f"❌ Failed to add property '{property_name}' to database")
@@ -137,40 +158,44 @@ def recreate_inbox_page() -> str:
     }
     
     # Archive existing instances
-    search_resp = requests.post(search_url, json=search_payload, headers=HEADERS)
+    search_resp = requests.post(search_url, json=search_payload, headers=_headers())
     for page in search_resp.json().get("results", []):
         if not page.get("archived"):
-            requests.patch(f"https://api.notion.com/v1/pages/{page['id']}", json={"archived": True}, headers=HEADERS)
+            requests.patch(
+                f"https://api.notion.com/v1/pages/{page['id']}",
+                json={"archived": True},
+                headers=_headers(),
+            )
     
     # Instantiate fresh Inbox
     create_url = "https://api.notion.com/v1/pages"
     create_payload = {
-        "parent": {"type": "page_id", "page_id": SANDBOX_PARENT_PAGE_ID},
+        "parent": {"type": "page_id", "page_id": _sandbox_parent_page_id()},
         "properties": {
             "title": {"title": [{"text": {"content": "Sandbox Inbox"}}]}
         }
     }
-    response = requests.post(create_url, json=create_payload, headers=HEADERS)
+    response = requests.post(create_url, json=create_payload, headers=_headers())
     response.raise_for_status()
     return response.json()["id"]
 
 def create_projects_db() -> str:
     url = "https://api.notion.com/v1/databases"
     payload = {
-        "parent": {"type": "page_id", "page_id": SANDBOX_PARENT_PAGE_ID},
+        "parent": {"type": "page_id", "page_id": _sandbox_parent_page_id()},
         "title": [{"type": "text", "text": {"content": "Sandbox Projects"}}],
         "properties": {
             "Name": {"title": {}}
         }
     }
-    response = requests.post(url, json=payload, headers=HEADERS)
+    response = requests.post(url, json=payload, headers=_headers())
     response.raise_for_status()
     return response.json()["id"]
 
 def create_tasks_db(projects_db_id: str) -> str:
     url = "https://api.notion.com/v1/databases"
     payload = {
-        "parent": {"type": "page_id", "page_id": SANDBOX_PARENT_PAGE_ID},
+        "parent": {"type": "page_id", "page_id": _sandbox_parent_page_id()},
         "title": [{"type": "text", "text": {"content": "Sandbox Tasks"}}],
         "properties": {
             "Name": {"title": {}},
@@ -210,7 +235,7 @@ def create_tasks_db(projects_db_id: str) -> str:
             }
         }
     }
-    response = requests.post(url, json=payload, headers=HEADERS)
+    response = requests.post(url, json=payload, headers=_headers())
     
     if response.status_code != 200:
         print(f"\n❌ ERROR creating tasks database")
@@ -236,13 +261,13 @@ def create_tasks_db(projects_db_id: str) -> str:
 
 def flush_database(db_id: str):
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
-    response = requests.post(url, headers=HEADERS)
+    response = requests.post(url, headers=_headers())
     response.raise_for_status()
     pages = response.json().get("results", [])
     
     for page in pages:
         patch_url = f"https://api.notion.com/v1/pages/{page['id']}"
-        requests.patch(patch_url, json={"archived": True}, headers=HEADERS)
+        requests.patch(patch_url, json={"archived": True}, headers=_headers())
 
 def create_page(db_id: str, properties: dict) -> str:
     url = "https://api.notion.com/v1/pages"
@@ -250,7 +275,7 @@ def create_page(db_id: str, properties: dict) -> str:
         "parent": {"database_id": db_id},
         "properties": properties
     }
-    response = requests.post(url, json=payload, headers=HEADERS)
+    response = requests.post(url, json=payload, headers=_headers())
     
     if response.status_code != 200:
         print(f"\n❌ ERROR creating page")
@@ -262,44 +287,31 @@ def create_page(db_id: str, properties: dict) -> str:
     return response.json()["id"]
 
 def export_test_environment(db_ids: dict, page_ids: dict):
-    """Outputs standard API credentials and dynamic testing IDs to ../.env"""
+    """Write dynamic test IDs to .env.sandbox without touching base secrets."""
+    _ensure_sandbox_environment()
     repo_root = Path(__file__).resolve().parents[2]
-    env_path = str(repo_root / ".env")
-    
-    env_content = f"""# Notion API Configuration
-NOTION_TOKEN={NOTION_TOKEN}
-SANDBOX_PARENT_PAGE_ID={os.environ.get("SANDBOX_PARENT_PAGE_ID", SANDBOX_PARENT_PAGE_ID)}
+    env_path = repo_root / ".env.sandbox"
 
-# Notion Database IDs
-NOTION_PROJECTS_DATABASE_ID={db_ids['projects']}
-NOTION_PROJECTS_DATA_SOURCE_ID={db_ids['projects']}
-NOTION_TASKS_DATABASE_ID={db_ids['tasks']}
-NOTION_TASKS_DATA_SOURCE_ID={db_ids['tasks']}
-NOTION_INBOX_PAGE_ID={page_ids['inbox']}
-NOTION_ID_PROJECT_PAGE_ID={page_ids['id_project']}
-NOTION_ID_UPDATE_PAGE_ID={page_ids['id_update']}
+    updates = {
+        "NOTION_PROJECTS_DATABASE_ID": str(db_ids["projects"]),
+        "NOTION_TASKS_DATABASE_ID": str(db_ids["tasks"]),
+        "NOTION_INBOX_PAGE_ID": str(page_ids["inbox"]),
+        "NOTION_ID_PROJECT_PAGE_ID": str(page_ids["id_project"]),
+        "NOTION_ID_UPDATE_PAGE_ID": str(page_ids["id_update"]),
+    }
 
-# Google API Configuration
-GOOGLE_API_KEY={os.environ.get("GOOGLE_API_KEY", "your_google_api_key_here")}
-
-# E2B Sandbox API Configuration
-E2B_API_KEY={os.environ.get("E2B_API_KEY", "your_e2b_api_key_here")}
-
-# LangSmith Configuration
-LANGSMITH_TRACING={os.environ.get("LANGSMITH_TRACING", "true")}
-LANGSMITH_ENDPOINT={os.environ.get("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com")}
-LANGSMITH_API_KEY={os.environ.get("LANGSMITH_API_KEY", "your_langsmith_api_key_here")}
-LANGSMITH_PROJECT={os.environ.get("LANGSMITH_PROJECT", "your_project_name_here")}
-
-# Poetry Configuration
-POETRY_API_KEY={os.environ.get("POETRY_API_KEY", "your_poetry_api_key_here")}
-"""
-    with open(env_path, "w") as f:
+    env_content = "# Ephemeral IDs generated by src/evaluation/sandbox.py\n"
+    env_content += "\n".join(f"{key}={value}" for key, value in updates.items())
+    env_content += "\n"
+    with open(env_path, "w", encoding="utf-8") as f:
         f.write(env_content)
-    print(f"Test Environment deterministically generated at: {env_path}")
+
+    os.environ.update(updates)
+    print(f"Sandbox IDs written to: {env_path}")
 
 
 def _ensure_sandbox_databases() -> tuple[str, str]:
+    _ensure_sandbox_environment()
     print("Validating Projects Database...")
     projects_db_id = search_database("Sandbox Projects")
     if not projects_db_id:
@@ -438,7 +450,7 @@ def provision_infrastructure():
                 "Blocking": {"relation": [{"id": blocked_task_id}]}
             }
         }
-        patch_resp = requests.patch(patch_url, headers=HEADERS, json=patch_payload)
+        patch_resp = requests.patch(patch_url, headers=_headers(), json=patch_payload)
         if patch_resp.status_code != 200:
             print(f"⚠️  Failed to add Blocking relation to 'New problem': {patch_resp.text}")
         else:
