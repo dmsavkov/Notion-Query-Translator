@@ -5,9 +5,10 @@ rendering via the ``rich`` library.  Called by the CLI after the
 LangGraph state machine hits __end__.
 """
 
+import ast
 import json
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from rich import box
 from rich.console import Console
@@ -31,6 +32,94 @@ THEME = {
     "table_header": "bold magenta",
     "panel_style": "dim",
 }
+
+
+def _extract_page_payload_candidates(execution_output: str) -> List[str]:
+    """Return possible literal payload slices from stdout text."""
+    lines = [line.rstrip() for line in str(execution_output or "").splitlines()]
+    candidates: List[str] = []
+    seen: set[str] = set()
+
+    for index, line in enumerate(lines):
+        stripped = line.lstrip()
+        literal_start: Optional[int] = None
+
+        if stripped.startswith(("{", "[")):
+            literal_start = len(line) - len(stripped)
+        else:
+            for marker in ("{", "["):
+                marker_index = line.find(marker)
+                if marker_index != -1:
+                    literal_start = marker_index
+                    break
+
+        if literal_start is None:
+            continue
+
+        candidate = "\n".join([line[literal_start:], *lines[index + 1 :]]).strip()
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            candidates.append(candidate)
+
+    return candidates
+
+
+def _try_parse_page_payload(execution_output: str) -> Any:
+    """Parse stdout as JSON or a Python literal if it looks like page output."""
+    for candidate in _extract_page_payload_candidates(execution_output):
+        for parser in (json.loads, ast.literal_eval):
+            try:
+                return parser(candidate)
+            except Exception:
+                continue
+    return None
+
+
+def _collect_page_ids(value: Any) -> List[str]:
+    """Recursively collect Notion page IDs from parsed stdout payloads."""
+    page_ids: List[str] = []
+
+    def _walk(item: Any) -> None:
+        if isinstance(item, dict):
+            if item.get("object") == "page":
+                page_id = item.get("id")
+                if isinstance(page_id, str) and page_id.strip():
+                    page_ids.append(page_id.strip())
+            for nested in item.values():
+                _walk(nested)
+        elif isinstance(item, list):
+            for nested in item:
+                _walk(nested)
+
+    _walk(value)
+
+    deduped: List[str] = []
+    seen: set[str] = set()
+    for page_id in page_ids:
+        if page_id in seen:
+            continue
+        seen.add(page_id)
+        deduped.append(page_id)
+    return deduped
+
+
+def _prepare_completed_state(final_state: Dict[str, Any]) -> Dict[str, Any]:
+    """Promote page-shaped stdout into the normal page rendering flow."""
+    if str(final_state.get("terminal_status") or "") != "success":
+        return final_state
+
+    if final_state.get("affected_notion_ids"):
+        return final_state
+
+    parsed_output = _try_parse_page_payload(str(final_state.get("execution_output") or ""))
+    page_ids = _collect_page_ids(parsed_output) if parsed_output is not None else []
+    if not page_ids:
+        return final_state
+
+    prepared_state = dict(final_state)
+    prepared_state["affected_notion_ids"] = page_ids
+    prepared_state["execution_output"] = ""
+    return prepared_state
 
 
 def _extract_page_title(flat_props: Dict[str, Any]) -> str:
@@ -110,6 +199,7 @@ def print_completed_state(final_state: Dict[str, Any]) -> None:
       its properties + markdown body.
     - On failure / security-blocked: shows an error panel.
     """
+    final_state = _prepare_completed_state(final_state)
     console = Console()
     terminal_status = final_state.get("terminal_status", "pending")
     affected_ids: List[str] = final_state.get("affected_notion_ids", [])

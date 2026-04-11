@@ -10,9 +10,7 @@ Provides a clean, rich terminal UI with:
 import asyncio
 import logging
 import os
-import sys
 from contextlib import redirect_stdout
-from typing import List, Dict, Optional
 
 import typer
 from rich.console import Console
