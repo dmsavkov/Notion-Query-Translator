@@ -213,8 +213,7 @@ async def test_full_graph_trajectory_mocked(mock_chat_wrapper):
         return_value={
             "reasoning": "in scope",
             "relevant_to_notion_scope": True,
-            "complexity_label": "simple",
-            "request_type": "POST",
+            "required_resources": [],
         },
     ), patch(
         "src.nodes.run_llama_guard_check",
@@ -273,8 +272,7 @@ async def test_precheck_nodes_pass_through_none_max_tokens():
         return_value={
             "reasoning": "ok",
             "relevant_to_notion_scope": True,
-            "complexity_label": "simple",
-            "request_type": "GET",
+            "required_resources": [],
         },
     ) as mock_general, patch(
         "src.nodes.run_llama_guard_check",

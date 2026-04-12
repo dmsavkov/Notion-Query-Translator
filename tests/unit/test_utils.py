@@ -67,16 +67,12 @@ def test_load_eval_tasks_supports_batch_yaml_lists(tmp_path):
                     "input_state": {"user_prompt": "Give me the latest tasks."},
                     "reference_outputs": {
                         "relevant_to_notion_scope": True,
-                        "complexity_label": "simple",
-                        "request_type": "GET",
                     },
                 },
                 {
                     "input_state": {"user_prompt": "What is Notion?"},
                     "reference_outputs": {
                         "relevant_to_notion_scope": False,
-                        "complexity_label": "UNKNOWN",
-                        "request_type": "UNKNOWN",
                     },
                 },
             ],

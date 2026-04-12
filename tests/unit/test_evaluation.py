@@ -50,11 +50,11 @@ def _noop_openai_client_session(*_a, **_k):
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_exact_match_evaluator_compares_only_available_reference_keys():
-    evaluator = ExactMatchEvaluator(keys_to_check=["is_safe", "complexity_label"], metric_key="exact_test")
+    evaluator = ExactMatchEvaluator(keys_to_check=["is_safe", "extra_metadata"], metric_key="exact_test")
 
     result = await evaluator(
         inputs={"task_id": "task-1"},
-        outputs={"task_id": "task-1", "is_safe": True, "complexity_label": "simple"},
+        outputs={"task_id": "task-1", "is_safe": True, "extra_metadata": "present"},
         reference_outputs={"task_id": "task-1", "is_safe": True},
     )
 
@@ -135,15 +135,11 @@ def test_build_reference_outputs_includes_solution_and_statements_defaults():
             "input_state": {"user_prompt": "nested request"},
             "reference_outputs": {
                 "relevant_to_notion_scope": True,
-                "complexity_label": "simple",
-                "request_type": "GET",
             },
         },
     )
     assert nested["task"] == "nested request"
     assert nested["relevant_to_notion_scope"] is True
-    assert nested["complexity_label"] == "simple"
-    assert nested["request_type"] == "GET"
 
 
 @pytest.mark.unit
@@ -234,8 +230,6 @@ def test_load_eval_tasks_or_raise_supports_selector_file_path(tmp_path):
                     "input_state": {"user_prompt": "Selector prompt"},
                     "reference_outputs": {
                         "relevant_to_notion_scope": True,
-                        "complexity_label": "simple",
-                        "request_type": "GET",
                     },
                 }
             ],

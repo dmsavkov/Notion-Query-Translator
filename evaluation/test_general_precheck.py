@@ -62,8 +62,6 @@ def make_general_precheck_target(agent_params: Optional[AgentParams] = None):
                 "task_id": str(state.get("task_id") or inputs.get("task_id") or ""),
                 "meta": {
                     "relevant_to_notion_scope": False,
-                    "complexity_label": "UNKNOWN",
-                    "request_type": "UNKNOWN",
                     "required_resources": [],
                 },
                 "error": str(exc),
@@ -77,8 +75,6 @@ def make_general_precheck_target(agent_params: Optional[AgentParams] = None):
             "task_id": str(state.get("task_id") or inputs.get("task_id") or ""),
             "meta": {
                 "relevant_to_notion_scope": bool(meta.get("relevant_to_notion_scope", False)),
-                "complexity_label": str(meta.get("complexity_label") or "UNKNOWN"),
-                "request_type": str(meta.get("request_type") or "UNKNOWN").upper(),
                 "required_resources": _normalize_required_resources(meta.get("required_resources")),
             },
         }
@@ -120,16 +116,6 @@ async def run_general_precheck_evaluation(settings: Optional[StandardEvaluationS
         ExactMatchEvaluator(
             keys_to_check=["relevant_to_notion_scope"],
             metric_key="relevant_to_notion_scope_match",
-            output_container_key="meta",
-        ),
-        ExactMatchEvaluator(
-            keys_to_check=["complexity_label"],
-            metric_key="complexity_label_match",
-            output_container_key="meta",
-        ),
-        ExactMatchEvaluator(
-            keys_to_check=["request_type"],
-            metric_key="request_type_match",
             output_container_key="meta",
         ),
     ]

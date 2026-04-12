@@ -60,8 +60,7 @@ async def precheck_general_node(state: Dict[str, Any], config: RunnableConfig) -
             "meta": {
                 "reasoning": "precheck disabled",
                 "relevant_to_notion_scope": True,
-                "complexity_label": "simple",
-                "request_type": "UNKNOWN",
+                "required_resources": [],
             }
         }
 
