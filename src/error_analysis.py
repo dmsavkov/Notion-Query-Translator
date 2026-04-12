@@ -35,6 +35,7 @@ class RunRecord(TypedDict, total=False):
     retrieval_context: str
     comments: Dict[str, Any]
     outputs: Dict[str, Any]
+    trials: List[Dict[str, Any]]
 
 
 @dataclass
@@ -63,14 +64,15 @@ class HumanConfig:
     Judging:
     - judging_enabled: whether to run LLM judges on section outputs.
     """
-    include_code: bool = False
-    include_code_execution: bool = False
+    include_code: bool = True
+    include_code_execution: bool = True
     include_code_statements: bool = True
     include_rag: bool = False
     include_rag_statements: bool = False
     include_plans: bool = False
     include_all_in_one: bool = False
     include_code_mismatches: bool = True
+    include_reflector: bool = True
     judging_enabled: bool = True
     statement_status_filter: Literal["both", "wrong", "right"] = "both"
     max_examples_per_field: Optional[int] = None
@@ -200,6 +202,7 @@ def load_experiment_runs(
                 "retrieval_context": pre_state.get("retrieval_context", ""),
                 "comments": comments,
                 "outputs": outputs,
+                "trials": outputs.get("trials") or [],
             }
             records.append(record)
 
@@ -492,6 +495,48 @@ def _build_code_mismatches_output(records: List[RunRecord], config: HumanConfig)
     }
 
 
+def _build_reflector_output(records: List[RunRecord], config: HumanConfig) -> Dict[str, Any]:
+    examples: List[Dict[str, Any]] = []
+    for record in records:
+        trials = record.get("trials")
+        if not trials:
+            continue
+
+        reflection_summary = []
+        for trial in trials:
+            t_num = trial.get("trial_num", "?")
+            verdict = trial.get("verdict") or {}
+            passed = verdict.get("pass", False)
+            feedback = verdict.get("feedback", "No feedback provided")
+            reflection_summary.append(
+                {
+                    "trial": t_num,
+                    "passed": passed,
+                    "feedback": feedback,
+                    "code_preview": str(trial.get("code") or "")[:200],
+                }
+            )
+
+        examples.append(
+            {
+                "task_id": record.get("task_id", ""),
+                "run_id": record.get("run_id", ""),
+                "thread_id": record.get("thread_id", ""),
+                "trials_count": len(trials),
+                "terminal_status": (record.get("outputs") or {}).get("terminal_status", "unknown"),
+                "reflection_history": reflection_summary,
+            }
+        )
+        if config.max_examples_per_field is not None and len(examples) >= config.max_examples_per_field:
+            break
+
+    return {
+        "total_runs": len(records),
+        "reflector_trials_found": len(examples),
+        "examples": examples,
+    }
+
+
 def _read_prompt_template(path: Path) -> str:
     if not path.exists():
         raise FileNotFoundError(f"Prompt template not found: {path}")
@@ -584,6 +629,11 @@ def _build_section_payloads(records: List[RunRecord], config: HumanConfig) -> Li
             "code_mismatches",
             config.include_code_mismatches,
             lambda rs, cfg: _build_code_mismatches_output(rs, cfg),
+        ),
+        (
+            "reflector",
+            config.include_reflector,
+            lambda rs, cfg: _build_reflector_output(rs, cfg),
         ),
     ]
 

@@ -324,6 +324,7 @@ def make_partial_live_eval_target(
             "function_name": str(final_state.get("function_name") or ""),
             "terminal_status": str(final_state.get("terminal_status") or ""),
             "trial_num": int(final_state.get("trial_num", 0) or 0),
+            "trials": final_state.get("trials") or [],
             "error": "",
         }
 
@@ -393,6 +394,7 @@ def make_live_eval_target(
             "solution_run": execution,
             "execution_output": str(final_state.get("execution_output") or ""),
             "function_name": str(final_state.get("function_name") or ""),
+            "trials": final_state.get("trials") or [],
             "error": "",
         }
 
