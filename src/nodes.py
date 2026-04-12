@@ -390,6 +390,40 @@ async def execute_local_node(state: Dict[str, Any], config: RunnableConfig) -> D
     return update_data
 
 
+@traceable(name="prepare_sandbox_node")
+async def prepare_sandbox_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
+    configurable = config.get("configurable", {})
+    pipeline_params = configurable.get("pipeline_params")
+    if str(getattr(pipeline_params, "execution_method", "local")) != "sandbox":
+        return {}
+
+    terminal_status = str(state.get("terminal_status") or "")
+    if terminal_status and terminal_status != "pending":
+        return {}
+
+    sandbox_id = state.get("sandbox_id")
+    if sandbox_id:
+        return {"sandbox_id": sandbox_id}
+
+    thread_id = str(configurable.get("thread_id") or state["task_id"])
+    template = str(getattr(pipeline_params, "sandbox_template", "notion-query-execution-sandbox"))
+    client_timeout_seconds = int(getattr(pipeline_params, "sandbox_client_timeout_seconds", 300))
+
+    try:
+        sandbox = await asyncio.to_thread(
+            get_or_create_sandbox,
+            sandbox_id=None,
+            thread_id=thread_id,
+            task_id=state["task_id"],
+            template=template,
+            timeout_seconds=client_timeout_seconds,
+        )
+    except Exception:
+        return {}
+
+    return {"sandbox_id": getattr(sandbox, "sandbox_id", None)}
+
+
 async def execute_sandbox_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
     assert state.get("task_id"), "Missing 'task_id' in state before execution."
     assert "generated_code" in state, "Missing 'generated_code' in state before execution."

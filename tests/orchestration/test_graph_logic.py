@@ -21,10 +21,17 @@ from src.nodes import (
     plan_node,
     precheck_general_node,
     precheck_security_node,
+    prepare_sandbox_node,
     reflect_node,
     retrieve_node,
 )
-from src.routing import route_after_codegen, route_after_egress, route_after_reflect, route_after_resolve_resources
+from src.routing import (
+    route_after_codegen,
+    route_after_egress,
+    route_after_plan,
+    route_after_reflect,
+    route_after_resolve_resources,
+)
 from src.utils.execution_utils import ExecutionResult
 
 
@@ -69,6 +76,15 @@ def test_route_after_codegen():
 
     config_sandbox = _config(pipeline=PipelineParams(execution_method="sandbox"))
     assert route_after_codegen(cast(Any, {}), config_sandbox) == "execute_sandbox"
+
+
+@pytest.mark.orchestration
+def test_route_after_plan():
+    config_local = _config(pipeline=PipelineParams(execution_method="local"))
+    assert route_after_plan(cast(Any, {}), config_local) == "codegen"
+
+    config_sandbox = _config(pipeline=PipelineParams(execution_method="sandbox"))
+    assert route_after_plan(cast(Any, {}), config_sandbox) == ["codegen", "prepare_sandbox"]
 
 
 @pytest.mark.orchestration
@@ -532,6 +548,38 @@ async def test_execute_sandbox_node_sets_max_retries_for_timeout():
     mock_get_or_create.assert_called_once()
     mock_run.assert_called_once()
     sandbox.kill.assert_not_called()
+
+
+@pytest.mark.orchestration
+@pytest.mark.asyncio
+async def test_prepare_sandbox_node_warms_sandbox_only_for_sandbox_execution():
+    state = {
+        "task_id": "sandbox_warmup",
+        "terminal_status": "pending",
+    }
+
+    sandbox = MagicMock()
+    sandbox.sandbox_id = "sbx-warmup"
+    with patch("src.nodes.get_or_create_sandbox", return_value=sandbox) as mock_get_or_create:
+        result = await prepare_sandbox_node(state, _config(pipeline=PipelineParams(execution_method="sandbox")))
+
+    assert result["sandbox_id"] == "sbx-warmup"
+    mock_get_or_create.assert_called_once()
+
+
+@pytest.mark.orchestration
+@pytest.mark.asyncio
+async def test_prepare_sandbox_node_noops_for_local_execution():
+    state = {
+        "task_id": "local_case",
+        "terminal_status": "pending",
+    }
+
+    with patch("src.nodes.get_or_create_sandbox") as mock_get_or_create:
+        result = await prepare_sandbox_node(state, _config(pipeline=PipelineParams(execution_method="local")))
+
+    assert result == {}
+    mock_get_or_create.assert_not_called()
 
 
 @pytest.mark.orchestration

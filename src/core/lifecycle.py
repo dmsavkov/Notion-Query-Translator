@@ -17,6 +17,7 @@ from ..nodes import (
     precheck_general_node,
     precheck_join_node,
     precheck_security_node,
+    prepare_sandbox_node,
     resolve_resources_node,
     reflect_node,
     retrieve_node,
@@ -26,6 +27,7 @@ from ..routing import (
     route_after_codegen,
     route_after_egress,
     route_after_precheck,
+    route_after_plan,
     route_after_resolve_resources,
     route_after_reflect,
 )
@@ -40,6 +42,7 @@ def build_pipeline() -> StateGraph:
     graph.add_node("precheck_join", cast(Any, precheck_join_node))
     graph.add_node("malovolent_request", cast(Any, malovolent_request_node))
     graph.add_node("resolve_resources", cast(Any, resolve_resources_node))
+    graph.add_node("prepare_sandbox", cast(Any, prepare_sandbox_node))
     graph.add_node("retrieve", cast(Any, retrieve_node))
     graph.add_node("plan", cast(Any, plan_node))
     graph.add_node("codegen", cast(Any, codegen_node))
@@ -70,7 +73,7 @@ def build_pipeline() -> StateGraph:
         },
     )
     graph.add_edge("retrieve", "plan")
-    graph.add_edge("plan", "codegen")
+    graph.add_conditional_edges("plan", route_after_plan)
     graph.add_edge("execute_local", "egress_security")
     graph.add_edge("execute_sandbox", "egress_security")
     graph.add_conditional_edges(
@@ -81,6 +84,7 @@ def build_pipeline() -> StateGraph:
             "execute_sandbox": "execute_sandbox",
         },
     )
+    graph.add_edge("prepare_sandbox", "execute_sandbox")
     graph.add_conditional_edges("egress_security", route_after_egress, {"reflect": "reflect", END: "cleanup_sandbox"})
     graph.add_conditional_edges(
         "reflect",

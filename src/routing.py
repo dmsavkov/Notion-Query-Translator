@@ -21,6 +21,13 @@ def route_after_precheck(state: PipelineState, config: RunnableConfig) -> str:
     return "malovolent_request"
 
 
+def route_after_plan(state: PipelineState, config: RunnableConfig) -> str | list[str]:
+    pipeline_params = config.get("configurable", {}).get("pipeline_params")
+    if str(getattr(pipeline_params, "execution_method", "local")) == "sandbox":
+        return ["codegen", "prepare_sandbox"]
+    return "codegen"
+
+
 def route_after_resolve_resources(state: PipelineState, config: RunnableConfig) -> str:
     if str(state.get("terminal_status") or "") in {"resource_not_found", "ambiguity_unresolved", "execution_failed"}:
         return END
