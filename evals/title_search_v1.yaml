@@ -1,0 +1,69 @@
+- task_id: ts_01_ai_research_typo
+  task: "What does AI Reaserch currently contain?"
+  input_state:
+    user_prompt: "What does AI Reaserch currently contain?"
+  reference_outputs:
+    required_resources: ["AI Research"]
+
+- task_id: ts_02_id_project_lowercase
+  task: "append one bullet to id project page"
+  input_state:
+    user_prompt: "append one bullet to id project page"
+  reference_outputs:
+    required_resources: ["ID PROJECT PAGE"]
+
+- task_id: ts_03_id_update_missing_letter
+  task: "Can you summarize what is in the ID UPDATE PGE?"
+  input_state:
+    user_prompt: "Can you summarize what is in the ID UPDATE PGE?"
+  reference_outputs:
+    required_resources: ["ID UPDATE PAGE"]
+
+- task_id: ts_04_imminent_and_critical_typos
+  task: "Compare Imminent Valdation and Critical Overfllow priorities."
+  input_state:
+    user_prompt: "Compare Imminent Valdation and Critical Overfllow priorities."
+  reference_outputs:
+    required_resources: ["Imminent Validation", "Critical Overflow"]
+
+- task_id: ts_05_blocked_new_problem_variant
+  task: "Relate Blocked by new problem to New Problem and tell me their status."
+  input_state:
+    user_prompt: "Relate Blocked by new problem to New Problem and tell me their status."
+  reference_outputs:
+    required_resources: ["Blocked_by_new_problem", "New problem"]
+
+- task_id: ts_06_deprecated_typo
+  task: "Archive deprecatd node if it is older than 30 days."
+  input_state:
+    user_prompt: "Archive deprecatd node if it is older than 30 days."
+  reference_outputs:
+    required_resources: ["Deprecated Node"]
+
+- task_id: ts_07_inbox_typo
+  task: "Open sandbx inbox and add a quick summary line."
+  input_state:
+    user_prompt: "Open sandbx inbox and add a quick summary line."
+  reference_outputs:
+    required_resources: ["Sandbox Inbox"]
+
+- task_id: ts_08_generic_post_no_title
+  task: "Generate a POST request example for creating a Notion page in a database."
+  input_state:
+    user_prompt: "Generate a POST request example for creating a Notion page in a database."
+  reference_outputs:
+    required_resources: []
+
+- task_id: ts_09_generic_patch_no_title
+  task: "Provide a PATCH example for updating Status on a page by ID."
+  input_state:
+    user_prompt: "Provide a PATCH example for updating Status on a page by ID."
+  reference_outputs:
+    required_resources: []
+
+- task_id: ts_10_multi_title_mixed_noise
+  task: "Summarize ai research, id update page, and new problm."
+  input_state:
+    user_prompt: "Summarize ai research, id update page, and new problm."
+  reference_outputs:
+    required_resources: ["AI Research", "ID UPDATE PAGE", "New problem"]
