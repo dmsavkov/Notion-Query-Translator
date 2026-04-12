@@ -518,5 +518,7 @@ async def reflect_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
 async def cleanup_sandbox_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
     sandbox_id = state.get("sandbox_id")
     if sandbox_id:
+        # Cleanup is awaited here so teardown stays deterministic; fire-and-forget would
+        # return faster but could leave orphaned sandboxes if the event loop exits early.
         await asyncio.to_thread(kill_sandbox, sandbox_id)
     return {"sandbox_id": None}
