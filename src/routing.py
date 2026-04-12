@@ -35,15 +35,34 @@ def route_after_resolve_resources(state: PipelineState, config: RunnableConfig) 
 
 def route_after_egress(state: PipelineState, config: RunnableConfig) -> str:
     pipeline_params = config.get("configurable", {}).get("pipeline_params")
-    if str(state.get("terminal_status") or "") in {"security_blocked", "max_retries_exceeded"}:
+    terminal_status = str(state.get("terminal_status") or "")
+    if terminal_status in {"security_blocked", "max_retries_exceeded"}:
         return END
     if bool(getattr(pipeline_params, "minimal", False)):
         return END
-    return "reflect"
+
+    reflector_used = str(getattr(pipeline_params, "reflector_used", "self") or "self")
+    if reflector_used == "none":
+        return END
+    if reflector_used == "external":
+        return "reflect"
+
+    # Self-correction mode: retry directly from execution failure without reflector.
+    if terminal_status == "success":
+        return END
+    if terminal_status == "execution_failed":
+        max_trials = int(getattr(pipeline_params, "max_trials", 0) or 0)
+        if int(state.get("trial_num", 0) or 0) >= max_trials:
+            return END
+        return "codegen"
+
+    return END
 
 
 def route_after_reflect(state: PipelineState, config: RunnableConfig) -> str:
     pipeline_params = config.get("configurable", {}).get("pipeline_params")
+    if str(getattr(pipeline_params, "reflector_used", "self") or "self") != "external":
+        return END
     if str(state.get("terminal_status") or "") in {"success", "max_retries_exceeded"}:
         return END
     if state.get("trial_num", 0) >= int(getattr(pipeline_params, "max_trials", 0) or 0):

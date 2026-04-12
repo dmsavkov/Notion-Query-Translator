@@ -284,27 +284,34 @@ def build_generate_request_plan_prompt(user_prompt: str, rag_context: str) -> st
 def build_generate_code_prompt(
     general_info: str,
     test_code: str,
+    retry_context: Optional[str] = None,
     feedback: Optional[str] = None,
 ) -> str:
-    feedback_block = (
-        f"\n\n<judge_feedback>\n{feedback}\n</judge_feedback>\n"
-        "Use <judge_feedback> as the primary repair spec.\n"
-        "First identify the root cause from feedback, then implement the HOW_TO_FIX steps exactly.\n"
-        "Do not re-argue or re-evaluate feedback; directly apply it in code.\n"
-        if feedback else ""
+    retry_context_block = (
+        f"\n\n<retry_context>\n{retry_context}\n</retry_context>\n"
+        "Treat <retry_context> as the primary repair spec for this retry.\n"
+        "Pinpoint the failing line or payload shape, then output a fully corrected script.\n"
+        "Do not output analysis-only text; produce executable Python code.\n"
+        if retry_context
+        else ""
     )
+
+    feedback_block = ""
+    if feedback and (not retry_context or str(feedback).strip() != str(retry_context).strip()):
+        feedback_block = (
+            f"\n\n<legacy_feedback>\n{feedback}\n</legacy_feedback>\n"
+            "Use <legacy_feedback> as secondary guidance if it does not conflict with <retry_context>.\n"
+        )
+
     return (
         f"{general_info}\n"
+        f"{retry_context_block}"
         f"{feedback_block}\n"
         f"{CODEGEN_ENV_CONTEXT}\n\n"
         f"{CODEGEN_RESOURCE_MAP_POLICY}\n\n"
-        "<tests_to_pass>\n"
-        f"{test_code}\n"
-        "</tests_to_pass>\n\n"
-        "Write a complete Python module (saved as solution.py) that:\n"
+        "Write a complete Python module that:\n"
         "  • Implements the function(s) described in <user_request>.\n"
         "  • Uses ONLY the endpoints and field names in <api_context> — no invented URLs or fields.\n"
-        "  • Passes every test in <tests_to_pass>.\n\n"
         "SECURITY — MANDATORY, no exceptions:\n"
         "  • First two imports MUST be: `import os` then `import dotenv; dotenv.load_dotenv()`.\n"
         "  • ALL secrets (tokens, IDs) MUST come from os.getenv('ENV_VAR_NAME').\n"

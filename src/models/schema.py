@@ -107,7 +107,8 @@ class PipelineParams(BaseModel):
     """Dynamic parameters used during pipeline execution."""
 
     minimal: bool = False
-    max_trials: int = 3
+    max_trials: int = 2
+    reflector_used: Literal["self", "none", "external"] = "self"
     execution_method: Literal["local", "sandbox"] = "sandbox"
     sandbox_template: str = "notion-query-execution-sandbox"
     sandbox_client_timeout_seconds: int = 5 * 60
@@ -154,6 +155,7 @@ class PipelineState(TypedDict):
     solution_run: Dict[str, Any]
     execution_output: str
     reflection_context: List[str]
+    retry_context: str
     feedback: str
     verdict: Dict[str, Any]
     trials: List[Dict[str, Any]]
@@ -189,6 +191,7 @@ def generate_default_state() -> PipelineState:
         "solution_run": {},
         "execution_output": "",
         "reflection_context": [],
+        "retry_context": "",
         "feedback": "",
         "verdict": {},
         "trials": [],

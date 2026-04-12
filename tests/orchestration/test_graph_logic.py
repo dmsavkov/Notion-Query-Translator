@@ -101,15 +101,25 @@ def test_route_after_egress():
     config_min = _config(pipeline=PipelineParams(minimal=True))
     assert route_after_egress(cast(Any, {}), config_min) == "__end__"
 
-    # Full mode: continue to reflect
-    config_full = _config(pipeline=PipelineParams(minimal=False))
-    assert route_after_egress(cast(Any, {}), config_full) == "reflect"
+    # External mode: continue to reflect
+    config_external = _config(pipeline=PipelineParams(minimal=False, reflector_used="external"))
+    assert route_after_egress(cast(Any, {"terminal_status": "execution_failed", "trial_num": 1}), config_external) == "reflect"
+
+    # Self mode: retry directly from execution failures while below trial cap.
+    config_self = _config(pipeline=PipelineParams(minimal=False, reflector_used="self", max_trials=2))
+    assert route_after_egress(cast(Any, {"terminal_status": "execution_failed", "trial_num": 1}), config_self) == "codegen"
+    assert route_after_egress(cast(Any, {"terminal_status": "execution_failed", "trial_num": 2}), config_self) == "__end__"
+    assert route_after_egress(cast(Any, {"terminal_status": "success", "trial_num": 1}), config_self) == "__end__"
+
+    # None mode: no retry loop.
+    config_none = _config(pipeline=PipelineParams(minimal=False, reflector_used="none"))
+    assert route_after_egress(cast(Any, {"terminal_status": "execution_failed", "trial_num": 1}), config_none) == "__end__"
 
 @pytest.mark.orchestration
 def test_route_after_reflect():
     # Success
     state_pass = cast(Any, {"terminal_status": "success"})
-    config = _config(pipeline=PipelineParams(max_trials=3))
+    config = _config(pipeline=PipelineParams(max_trials=3, reflector_used="external"))
     assert route_after_reflect(state_pass, config) == "__end__"
     
     # Failure, trial 1
@@ -119,6 +129,10 @@ def test_route_after_reflect():
     # Failure, trial 3 (max reached)
     state_fail_3 = cast(Any, {"terminal_status": "max_retries_exceeded", "trial_num": 3})
     assert route_after_reflect(state_fail_3, config) == "__end__"
+
+    # Non-external modes should never continue through reflect routing.
+    config_self = _config(pipeline=PipelineParams(max_trials=3, reflector_used="self"))
+    assert route_after_reflect(state_fail_1, config_self) == "__end__"
 
 
 @pytest.mark.orchestration
@@ -164,6 +178,7 @@ async def test_full_graph_trajectory_mocked(mock_chat_wrapper):
         "solution_run": {},
         "execution_output": "",
         "reflection_context": [],
+        "retry_context": "",
         "feedback": "",
         "verdict": {},
         "trials": [],
@@ -173,7 +188,7 @@ async def test_full_graph_trajectory_mocked(mock_chat_wrapper):
     }
     
     config = _config(
-        pipeline=PipelineParams(minimal=False, max_trials=3, execution_method="local"),
+        pipeline=PipelineParams(minimal=False, max_trials=3, execution_method="local", reflector_used="external"),
         static=StaticParams(context_used="baseline", enable_planning=True),
         agent=_make_agent_params(
             query_translator=QueryTranslatorParams(
@@ -293,6 +308,7 @@ async def test_planner_codegen_reflector_pass_through_none_max_tokens():
     codegen_state = {
         "user_prompt": "Write code",
         "general_info": "General info block",
+        "retry_context": "Execution failed with bad payload",
         "feedback": "",
         "trial_num": 0,
     }
@@ -414,6 +430,7 @@ async def test_codegen_node_passes_cfg_to_generate_code():
     state = {
         "user_prompt": "Write code to solve the task",
         "general_info": "General info block",
+        "retry_context": "Execution failed with 400 Bad Request",
         "feedback": "Fix header",
         "trial_num": 1,
     }
@@ -441,6 +458,7 @@ async def test_codegen_node_passes_cfg_to_generate_code():
     assert mock_codegen.await_args.kwargs["model_size"] == "gemma4"
     assert mock_codegen.await_args.kwargs["temperature"] == 0.11
     assert mock_codegen.await_args.kwargs["max_tokens"] == 888
+    assert mock_codegen.await_args.kwargs["retry_context"] == "Execution failed with 400 Bad Request"
 
 
 @pytest.mark.orchestration

@@ -346,6 +346,7 @@ async def codegen_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
     code_result = await generate_code(
         general_info=general_info_with_resources,
         test_code="No tests are used.",
+        retry_context=state.get("retry_context") or state.get("feedback"),
         feedback=state.get("feedback"),
         model_size=str(configurable["agent_params"].code_generator.model_name),
         temperature=float(configurable["agent_params"].code_generator.model_temperature),
@@ -358,13 +359,37 @@ async def codegen_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
     }
 
 
-def _execution_state_update(result: ExecutionResult) -> Dict[str, Any]:
+def _tail_text(value: str, limit: int) -> str:
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return text[-limit:]
+
+
+def _build_retry_context(*, result: ExecutionResult, generated_code: str) -> str:
+    stderr_tail = _tail_text(result.stderr or result.error or "", 1400)
+    code_tail = _tail_text(generated_code, 1600)
+    return (
+        "Your previous code failed during execution.\n"
+        "Identify the precise failure cause, then output a complete corrected module.\n\n"
+        "<execution_error>\n"
+        f"{stderr_tail}\n"
+        "</execution_error>\n\n"
+        "<failed_code>\n"
+        f"{code_tail}\n"
+        "</failed_code>"
+    )
+
+
+def _execution_state_update(result: ExecutionResult, *, generated_code: str) -> Dict[str, Any]:
     terminal_status = (
         "success" if result.passed else "max_retries_exceeded" if is_timeout_result(result) else "execution_failed"
     )
+    retry_context = "" if result.passed else _build_retry_context(result=result, generated_code=generated_code)
     return {
         "solution_run": result.model_dump(),
         "execution_output": result.stdout if result.passed else f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}",
+        "retry_context": retry_context,
         "terminal_status": terminal_status,
     }
 
@@ -377,7 +402,7 @@ async def execute_local_node(state: Dict[str, Any], config: RunnableConfig) -> D
     resource_map = state.get("resource_map", {})
     instrumented_code = wrap_code_with_telemetry(raw_code, local=True, resource_map=resource_map)
     result = await asyncio.to_thread(run_isolated_code, code=instrumented_code, task_id=state["task_id"])
-    update_data = _execution_state_update(result)
+    update_data = _execution_state_update(result, generated_code=raw_code)
 
     # Extract affected IDs from the local temp file
     affected_ids: List[str] = []
@@ -475,7 +500,7 @@ async def execute_sandbox_node(state: Dict[str, Any], config: RunnableConfig) ->
             file_bytes = await asyncio.to_thread(sandbox.files.read, AFFECTED_IDS_PATH)
             affected_ids = json.loads(file_bytes)
 
-    update_data = _execution_state_update(result)
+    update_data = _execution_state_update(result, generated_code=raw_code)
     update_data["sandbox_id"] = sandbox_id
     update_data["affected_notion_ids"] = affected_ids
     return update_data
@@ -500,6 +525,14 @@ async def egress_security_node(state: Dict[str, Any], config: RunnableConfig) ->
                 "execution_output": "[SECURITY OVERRIDE - OUTPUT DELETED]",
                 "terminal_status": "security_blocked",
             }
+
+    reflector_used = str(getattr(pipeline_params, "reflector_used", "self") or "self")
+    terminal_status = str(state.get("terminal_status") or "")
+    if reflector_used == "self" and terminal_status == "execution_failed":
+        trial_num = int(state.get("trial_num", 0) or 0)
+        max_trials = int(getattr(pipeline_params, "max_trials", 0) or 0)
+        if trial_num >= max_trials:
+            return {"terminal_status": "max_retries_exceeded"}
 
     return {}
 
@@ -529,8 +562,10 @@ async def reflect_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
 
     trial_num = int(state.get("trial_num", 0) or 0)
     max_trials = int(getattr(configurable.get("pipeline_params"), "max_trials", 0) or 0)
+    feedback = str(verdict.get("feedback") or "")
     return {
-        "feedback": verdict.get("feedback", ""),
+        "feedback": feedback,
+        "retry_context": feedback,
         "verdict": verdict,
         "trials": [
             *state.get("trials", []),

@@ -85,7 +85,15 @@ def build_pipeline() -> StateGraph:
         },
     )
     graph.add_edge("prepare_sandbox", "execute_sandbox")
-    graph.add_conditional_edges("egress_security", route_after_egress, {"reflect": "reflect", END: "cleanup_sandbox"})
+    graph.add_conditional_edges(
+        "egress_security",
+        route_after_egress,
+        {
+            "reflect": "reflect",
+            "codegen": "codegen",
+            END: "cleanup_sandbox",
+        },
+    )
     graph.add_conditional_edges(
         "reflect",
         route_after_reflect,

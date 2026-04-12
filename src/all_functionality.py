@@ -456,6 +456,7 @@ _CODE_SCHEMA = {
 async def generate_code(
     general_info: str,
     test_code: str,
+    retry_context: Optional[str] = None,
     feedback: Optional[str] = None,
     model_size: str = "gemma27",
     temperature: float = 0.3,
@@ -467,6 +468,7 @@ async def generate_code(
     Args:
         general_info: Assembled context from step 3.
         test_code:    The tests the code must pass (from step 4).
+        retry_context: Structured retry guidance from execution errors or reflection.
         feedback:     Optional judge feedback from a previous failed attempt.
         model_size:   Model alias key from _MODEL_MAP.
         temperature:  Sampling temperature.
@@ -478,6 +480,7 @@ async def generate_code(
     prompt = build_generate_code_prompt(
         general_info=general_info,
         test_code=test_code,
+        retry_context=retry_context,
         feedback=feedback,
     )
 
