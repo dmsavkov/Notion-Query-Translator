@@ -204,6 +204,28 @@ class TestTelemetryWrapping:
         wrapped = wrap_code_with_telemetry("x = 1 + 1")
         compile(wrapped, "<telemetry_test>", "exec")  # raises SyntaxError on failure
 
+    def test_wrap_is_reentrant_across_execs(self) -> None:
+        """A reused interpreter must still capture telemetry on later executions."""
+        page_id = "ccbcb17d-cc44-829a-b707-019899e91df7"
+        code = f"""
+import requests
+requests.get("https://api.notion.com/v1/pages/{page_id}")
+"""
+        wrapped = wrap_code_with_telemetry(code)
+        wrapped = wrapped.replace(
+            "return __original_request(self, method, url, *args, **kwargs)",
+            "return type('R', (), {'status_code': 200, 'json': lambda self: {}, 'text': ''})()",
+        )
+
+        namespace: Dict[str, Any] = {}
+        exec(wrapped, namespace)
+        first_ids = list(namespace.get("__system_affected_ids", set()))
+        exec(wrapped, namespace)
+        second_ids = list(namespace.get("__system_affected_ids", set()))
+
+        assert page_id in first_ids
+        assert page_id in second_ids
+
     def test_uuid_regex_matches_notion_ids(self) -> None:
         """Verify the compiled regex actually matches Notion-style UUIDs."""
         # Extract the regex pattern from the wrapped code

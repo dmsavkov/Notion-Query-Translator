@@ -22,7 +22,8 @@ _TELEMETRY_HEADER = textwrap.dedent("""\
     import sys as __sys_sys
 
     __system_affected_ids = set()
-    __original_request = __sys_requests.Session.request
+    __current_request = __sys_requests.Session.request
+    __original_request = getattr(__current_request, "__telemetry_original__", __current_request)
     __uuid_pattern = __sys_re.compile(
         r'[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}'
     )
@@ -41,6 +42,8 @@ _TELEMETRY_HEADER = textwrap.dedent("""\
                     pass
         return __original_request(self, method, url, *args, **kwargs)
 
+    __telemetry_request.__telemetry_patched__ = True
+    __telemetry_request.__telemetry_original__ = __original_request
     __sys_requests.Session.request = __telemetry_request
 """)
 
