@@ -1,6 +1,6 @@
 import pytest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.all_functionality import async_chat_wrapper
 
@@ -22,7 +22,9 @@ async def test_async_chat_wrapper_passes_temperature_and_adds_concision_prompt()
     messages = [{"role": "user", "content": "Say hello"}]
     create_mock = AsyncMock(return_value=_mock_response("hello"))
 
-    with patch("src.all_functionality._async_client.chat.completions.create", create_mock):
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = create_mock
+    with patch("src.all_functionality.get_openai_client", return_value=mock_client):
         result = await async_chat_wrapper(
             messages=messages,
             max_tokens=321,
@@ -47,7 +49,9 @@ async def test_async_chat_wrapper_accepts_none_max_tokens_without_concision_prom
     messages = [{"role": "user", "content": "Say hello"}]
     create_mock = AsyncMock(return_value=_mock_response("hello"))
 
-    with patch("src.all_functionality._async_client.chat.completions.create", create_mock):
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = create_mock
+    with patch("src.all_functionality.get_openai_client", return_value=mock_client):
         result = await async_chat_wrapper(
             messages=messages,
             max_tokens=None,
@@ -71,7 +75,9 @@ async def test_async_chat_wrapper_json_mode_non_gemini_adds_json_instruction():
     messages = [{"role": "user", "content": "Return JSON"}]
     create_mock = AsyncMock(return_value=_mock_response('{"ok": true}'))
 
-    with patch("src.all_functionality._async_client.chat.completions.create", create_mock):
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = create_mock
+    with patch("src.all_functionality.get_openai_client", return_value=mock_client):
         result = await async_chat_wrapper(
             messages=messages,
             max_tokens=150,

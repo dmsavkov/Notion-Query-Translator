@@ -5,7 +5,7 @@ from .execution_utils import (
     run_code_in_sandbox,
     run_isolated_code,
 )
-from .openai_utils import create_async_openai_client
+from .openai_utils import create_async_openai_client, get_openai_client, openai_client_session
 
 __all__ = [
     "ExecutionResult",
@@ -14,4 +14,6 @@ __all__ = [
     "run_code_in_sandbox",
     "run_isolated_code",
     "create_async_openai_client",
+    "get_openai_client",
+    "openai_client_session",
 ]

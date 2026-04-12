@@ -13,6 +13,7 @@ from langsmith import Client
 
 from .all_functionality import async_chat_wrapper
 from .models.config import _MODEL_MAP
+from .utils.openai_utils import openai_client_session
 
 
 GROUP_PROMPT_PATH = Path("instructions/helpful-prompts/chatbot_group_report_prompt.md")
@@ -816,9 +817,12 @@ async def run_error_analysis(
     cfg = config or HumanConfig()
     records = load_experiment_runs(experiment_prefix=exp_name, dataset_name=dataset_name)
     payloads = _build_section_payloads(records, cfg)
-    
+
     if cfg.judging_enabled:
-        judged_payloads = await _run_group_judges(payloads, max_concurrency=cfg.llm_max_concurrency)
+        async with openai_client_session():
+            judged_payloads = await _run_group_judges(
+                payloads, max_concurrency=cfg.llm_max_concurrency
+            )
     else:
         judged_payloads = payloads
 

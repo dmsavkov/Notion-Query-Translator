@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 import json
@@ -36,6 +37,14 @@ class _AsyncIterator:
         value = self._rows[self._index]
         self._index += 1
         return value
+
+
+def _noop_openai_client_session(*_a, **_k):
+    @asynccontextmanager
+    async def _cm():
+        yield None
+
+    return _cm()
 
 
 @pytest.mark.unit
@@ -278,7 +287,10 @@ async def test_evaluation_orchestration_raises_on_execution_errors():
 
     with patch("src.evaluation.shared.load_eval_tasks_or_raise", return_value={"task-x": {"query": "q"}}), patch(
         "src.evaluation.shared.ensure_dataset"
-    ) as mock_ensure, patch("src.evaluation.shared.aevaluate", new_callable=AsyncMock, return_value=_AsyncIterator(rows)):
+    ) as mock_ensure, patch(
+        "src.evaluation.shared.openai_client_session",
+        side_effect=_noop_openai_client_session,
+    ), patch("src.evaluation.shared.aevaluate", new_callable=AsyncMock, return_value=_AsyncIterator(rows)):
         with pytest.raises(AssertionError, match="task-x"):
             await evaluation_orchestration(
                 settings=settings,
@@ -308,6 +320,9 @@ async def test_evaluation_orchestration_runs_provisioning_and_error_analysis_whe
 
     with patch("src.evaluation.shared.load_eval_tasks_or_raise", return_value={"task-1": {"query": "q"}}), patch(
         "src.evaluation.shared.ensure_dataset"
+    ), patch(
+        "src.evaluation.shared.openai_client_session",
+        side_effect=_noop_openai_client_session,
     ), patch("src.evaluation.shared.aevaluate", new_callable=AsyncMock, return_value=_AsyncIterator([])), patch(
         "src.evaluation.sandbox.provision_infrastructure"
     ) as mock_provision, patch("src.evaluation.shared.asyncio.to_thread", new_callable=AsyncMock, return_value={"ok": True}) as mock_to_thread:

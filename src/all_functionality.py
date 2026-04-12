@@ -12,9 +12,7 @@ from functools import partial
 from typing import Any, Dict, List, Literal, Optional, cast
 import yaml
 
-import openai
 from json_repair import repair_json
-from langsmith.wrappers import wrap_openai
 
 from .models.config import (
     _MODEL_MAP,
@@ -25,7 +23,7 @@ from .models.prompts import (
     build_generate_request_plan_prompt,
     build_reflect_code_prompt,
 )
-from .utils.openai_utils import create_async_openai_client
+from .utils.openai_utils import get_openai_client
 
 logger = logging.getLogger(__name__)
 
@@ -291,12 +289,6 @@ def parse_statements_response(response_content: Any) -> List[Dict[str, Any]]:
 
 
 # ── Pipeline ─────────────────────────────────────────────────────────────────────────────
-_async_client = create_async_openai_client(
-    api_key=os.getenv("GOOGLE_API_KEY") or "",
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-    max_retries=25,
-)
-
 def _check_finish_reason(model_name: str, finish_reason: str) -> None:
     """Check and log the finish_reason from LLM response."""
     print(f"[async_chat_wrapper] Model: {model_name}, finish_reason: {finish_reason}")
@@ -347,9 +339,11 @@ async def async_chat_wrapper(
         concision_instruction = build_concision_prompt(max_tokens)
         msgs.append({"role": "user", "content": concision_instruction})
     
+    client = get_openai_client()
+
     if json_output:
         if 'gemini' in model_name:
-            response = await _async_client.chat.completions.parse(
+            response = await client.chat.completions.parse(
                 model=model_name,
                 messages=cast(Any, msgs),
                 temperature=temperature,
@@ -366,7 +360,7 @@ async def async_chat_wrapper(
         else:
             msgs.append({"role": "user", "content": "Please provide the output in JSON format."})
          
-    response = await _async_client.chat.completions.create(
+    response = await client.chat.completions.create(
         model=model_name,
         messages=cast(Any, msgs),
         temperature=temperature,

@@ -1,5 +1,7 @@
-from contextlib import AbstractAsyncContextManager
-from unittest.mock import AsyncMock, patch
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from types import SimpleNamespace
+from typing import Any, Dict
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -17,6 +19,29 @@ class _DummyAsyncContext(AbstractAsyncContextManager):
 
     async def __aexit__(self, exc_type, exc, tb):
         return False
+
+
+def _fake_openai_client_session(*_args, **_kwargs):
+    @asynccontextmanager
+    async def _inner():
+        yield MagicMock()
+
+    return _inner()
+
+
+class _EmptyAstream:
+    def __aiter__(self) -> "_EmptyAstream":
+        return self
+
+    async def __anext__(self) -> Any:
+        raise StopAsyncIteration
+
+
+def _pipeline_mock_with_final_state(final_state: Dict[str, Any]) -> AsyncMock:
+    pipeline = AsyncMock()
+    pipeline.astream = MagicMock(return_value=_EmptyAstream())
+    pipeline.aget_state = AsyncMock(return_value=SimpleNamespace(values=final_state))
+    return pipeline
 
 
 def _build_app_config() -> AppConfig:
@@ -42,7 +67,6 @@ def test_generate_default_state_starts_empty():
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_single_returns_raw_final_state():
-    pipeline = AsyncMock()
     final_state = {
         "task_id": "task-1",
         "user_prompt": "Write code",
@@ -53,7 +77,7 @@ async def test_execute_single_returns_raw_final_state():
         "final_code": "print(42)",
         "trials": [],
     }
-    pipeline.ainvoke = AsyncMock(return_value=final_state)
+    pipeline = _pipeline_mock_with_final_state(final_state)
 
     result = await execute_single(
         tasks={"task-1": {"query": "Write code"}},
@@ -64,13 +88,13 @@ async def test_execute_single_returns_raw_final_state():
 
     assert result == {"task-1": final_state}
     assert result["task-1"]["generated_code"] == "print(42)"
-    pipeline.ainvoke.assert_awaited_once()
+    pipeline.astream.assert_called_once()
+    pipeline.aget_state.assert_awaited_once()
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_single_preserves_additional_task_fields_in_initial_state():
-    pipeline = AsyncMock()
     final_state = {
         "task_id": "task-1",
         "user_prompt": "Write code",
@@ -81,7 +105,7 @@ async def test_execute_single_preserves_additional_task_fields_in_initial_state(
         "final_code": "print(42)",
         "trials": [],
     }
-    pipeline.ainvoke = AsyncMock(return_value=final_state)
+    pipeline = _pipeline_mock_with_final_state(final_state)
 
     result = await execute_single(
         tasks={"task-1": {"query": "Write code", "think": True, "notes": "preserve me"}},
@@ -91,7 +115,7 @@ async def test_execute_single_preserves_additional_task_fields_in_initial_state(
     )
 
     assert result == {"task-1": final_state}
-    initial_state = pipeline.ainvoke.await_args.args[0]
+    initial_state = pipeline.astream.call_args.args[0]
     assert initial_state["task_id"] == "task-1"
     assert initial_state["user_prompt"] == "Write code"
     assert initial_state["think"] is True
@@ -101,7 +125,6 @@ async def test_execute_single_preserves_additional_task_fields_in_initial_state(
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_single_reads_prompt_from_nested_input_state():
-    pipeline = AsyncMock()
     final_state = {
         "task_id": "task-1",
         "user_prompt": "Nested prompt",
@@ -112,7 +135,7 @@ async def test_execute_single_reads_prompt_from_nested_input_state():
         "final_code": "print(42)",
         "trials": [],
     }
-    pipeline.ainvoke = AsyncMock(return_value=final_state)
+    pipeline = _pipeline_mock_with_final_state(final_state)
 
     result = await execute_single(
         tasks={
@@ -127,7 +150,7 @@ async def test_execute_single_reads_prompt_from_nested_input_state():
     )
 
     assert result == {"task-1": final_state}
-    initial_state = pipeline.ainvoke.await_args.args[0]
+    initial_state = pipeline.astream.call_args.args[0]
     assert initial_state["task_id"] == "task-1"
     assert initial_state["user_prompt"] == "Nested prompt"
     assert initial_state["input_state"]["extra"] == "value"
@@ -138,7 +161,7 @@ async def test_execute_single_reads_prompt_from_nested_input_state():
 @pytest.mark.asyncio
 async def test_execute_single_returns_error_state_when_pipeline_raises():
     pipeline = AsyncMock()
-    pipeline.ainvoke = AsyncMock(side_effect=RuntimeError("boom"))
+    pipeline.astream = MagicMock(side_effect=RuntimeError("boom"))
 
     result = await execute_single(
         tasks={"task-1": {"query": "Write code"}},
@@ -181,6 +204,9 @@ async def test_run_with_lifecycle_calls_single_task_executor_directly():
     tasks = {"task-1": {"query": "Write code"}}
 
     with patch("src.core.lifecycle.AsyncSqliteSaver.from_conn_string", return_value=_DummyAsyncContext()), patch(
+        "src.core.lifecycle.openai_client_session",
+        side_effect=_fake_openai_client_session,
+    ), patch(
         "src.core.lifecycle.build_pipeline"
     ) as mock_build_pipeline, patch(
         "src.core.lifecycle.execute_single",

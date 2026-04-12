@@ -5,6 +5,7 @@ import pytest
 os.environ["LANGSMITH_TRACING"] = "false"
 
 from src.all_functionality import async_chat_wrapper
+from src.utils.openai_utils import openai_client_session
 
 @pytest.mark.llm
 @pytest.mark.vcr(
@@ -24,12 +25,13 @@ async def test_async_chat_wrapper_real_gemma4():
     ]
     
     # Using gemma4 as requested
-    result = await async_chat_wrapper(
-        messages=messages,
-        model_size="gemma4",
-        json_output=True,
-        max_tokens=100
-    )
+    async with openai_client_session():
+        result = await async_chat_wrapper(
+            messages=messages,
+            model_size="gemma4",
+            json_output=True,
+            max_tokens=100,
+        )
     
     assert isinstance(result, dict)
     assert result.get("test") in ["passed", "completed"]

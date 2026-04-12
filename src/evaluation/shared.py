@@ -14,6 +14,7 @@ from ..core.execute_single import _build_running_config
 from ..models.config import AppConfig
 from ..models.schema import AgentParams, PipelineParams, RagBuildConfig, StaticParams, generate_default_state
 from ..nodes import cleanup_sandbox_node
+from ..utils.openai_utils import openai_client_session
 from .utils import StandardEvaluationSettings, _extract_execution_error, ensure_dataset, load_eval_tasks_or_raise
 
 
@@ -122,19 +123,20 @@ async def evaluation_orchestration(
 
     print(f"\n[Executing Eval] Dataset: {settings.dataset_name} | Prefix: {settings.experiment_prefix}")
 
-    results_iterator = await aevaluate(
-        target,
-        data=settings.dataset_name,
-        evaluators=evaluators,
-        experiment_prefix=settings.experiment_prefix,
-        max_concurrency=settings.eval_max_concurrency,
-    )
-
     failed_executions: List[Dict[str, str]] = []
-    async for result in results_iterator:
-        error_record = _extract_execution_error(result)
-        if error_record:
-            failed_executions.append(error_record)
+    async with openai_client_session():
+        results_iterator = await aevaluate(
+            target,
+            data=settings.dataset_name,
+            evaluators=evaluators,
+            experiment_prefix=settings.experiment_prefix,
+            max_concurrency=settings.eval_max_concurrency,
+        )
+
+        async for result in results_iterator:
+            error_record = _extract_execution_error(result)
+            if error_record:
+                failed_executions.append(error_record)
 
     if failed_executions:
         lines = [

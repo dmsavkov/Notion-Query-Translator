@@ -7,6 +7,7 @@ from langgraph.graph import END, START, StateGraph
 from ..models.config import AppConfig
 from ..models.schema import PipelineState
 from ..utils.execution_utils import generate_thread_id
+from ..utils.openai_utils import openai_client_session
 from ..nodes import (
     codegen_node,
     egress_security_node,
@@ -118,6 +119,8 @@ async def run_with_lifecycle(
         checkpointer = await stack.enter_async_context(
             AsyncSqliteSaver.from_conn_string(app_config.static.sqlite_saver_path)
         )
+
+        await stack.enter_async_context(openai_client_session())
 
         qdrant_client = None
         if (
