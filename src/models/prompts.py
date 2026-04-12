@@ -287,6 +287,23 @@ def build_generate_code_prompt(
     retry_context: Optional[str] = None,
     feedback: Optional[str] = None,
 ) -> str:
+    role_block = (
+        "<codegen_role>\n"
+        "You are a Notion API requester and code generator.\n"
+        "Use the provided task brief, API context, and resource map to produce one deterministic Python module.\n"
+        "Prefer direct Notion API calls and keep the implementation narrowly aligned to the request.\n"
+        "</codegen_role>\n"
+    )
+
+    layout_block = (
+        "<prompt_layout>\n"
+        "1) <general_info> contains the main task brief, API context, and resource constraints.\n"
+        "2) <retry_context> appears only on retries and is the primary repair signal.\n"
+        "3) <legacy_feedback> may appear as secondary guidance for compatibility.\n"
+        "4) Environment and resource-map rules are hard constraints.\n"
+        "</prompt_layout>\n"
+    )
+
     retry_context_block = (
         f"\n\n<retry_context>\n{retry_context}\n</retry_context>\n"
         "Treat <retry_context> as the primary repair spec for this retry.\n"
@@ -304,7 +321,9 @@ def build_generate_code_prompt(
         )
 
     return (
-        f"{general_info}\n"
+        f"{role_block}\n"
+        f"{layout_block}\n"
+        f"<general_info>\n{general_info}\n</general_info>\n"
         f"{retry_context_block}"
         f"{feedback_block}\n"
         f"{CODEGEN_ENV_CONTEXT}\n\n"
