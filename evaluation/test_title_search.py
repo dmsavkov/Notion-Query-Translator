@@ -345,7 +345,7 @@ async def mentioned_vs_resolved_count_evaluator(
 	mentioned_count = int(outputs.get("mentioned_pages_count") or 0)
 	predicted_count = int(outputs.get("resolved_pages_count") or 0)
 
-	score = 1.0 if mentioned_count == predicted_count else 0.0
+	score = 1.0 if expected_count == predicted_count else 0.0
 	task_id = str(outputs.get("task_id") or reference_outputs.get("task_id") or inputs.get("task_id") or "")
 	return {
 		"key": "mentioned_vs_resolved_count_match",
