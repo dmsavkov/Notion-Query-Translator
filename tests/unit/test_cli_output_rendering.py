@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from src.presentation.viewer import _prepare_completed_state
@@ -52,3 +54,25 @@ def test_prepare_completed_state_leaves_non_page_stdout_untouched():
     prepared = _prepare_completed_state(state)
 
     assert prepared == state
+
+
+@pytest.mark.unit
+def test_prepare_completed_state_parses_execution_envelope_and_caps_render_ids():
+    payload = {
+        "execution_status": "success",
+        "message_to_user": "I found 7 tasks, showing the first 5.",
+        "relevant_page_ids": ["p1", "p2", "p3", "p4", "p5", "p6", "p7"],
+    }
+    state = {
+        "terminal_status": "success",
+        "execution_output": f"debug line\n{json.dumps(payload)}",
+        "affected_notion_ids": [],
+    }
+
+    prepared = _prepare_completed_state(state)
+
+    assert prepared["execution_status"] == "success"
+    assert prepared["message_to_user"] == payload["message_to_user"]
+    assert prepared["execution_output"] == payload["message_to_user"]
+    assert prepared["relevant_page_ids"] == payload["relevant_page_ids"]
+    assert prepared["affected_notion_ids"] == ["p1", "p2", "p3", "p4", "p5"]

@@ -424,6 +424,28 @@ class TestViewer:
 
     @patch("src.presentation.viewer.fetch_page_properties")
     @patch("src.presentation.viewer.fetch_page_markdown")
+    def test_success_with_message_and_ids_renders_both(
+        self,
+        mock_md: Any,
+        mock_props: Any,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        mock_props.return_value = _load_page_properties()
+        mock_md.return_value = _load_page_markdown()
+
+        state = {
+            "terminal_status": "success",
+            "message_to_user": "I found matching tasks and loaded them below.",
+            "execution_output": "",
+            "affected_notion_ids": ["ccbcb17d-cc44-829a-b707-019899e91df7"],
+        }
+        print_completed_state(state)
+        captured = capsys.readouterr().out
+        assert "I found matching tasks and loaded them below." in captured
+        assert "Architecture Review" in captured
+
+    @patch("src.presentation.viewer.fetch_page_properties")
+    @patch("src.presentation.viewer.fetch_page_markdown")
     def test_prefetched_pages_skip_fetch(
         self,
         mock_md: Any,

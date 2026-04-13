@@ -28,6 +28,7 @@ from .utils.execution_utils import (
     get_or_create_sandbox,
     kill_sandbox,
 )
+from .utils.execution_envelope import apply_execution_envelope as _apply_execution_envelope, normalize_page_ids
 from .utils.telemetry import (
     AFFECTED_IDS_PATH,
     LOCAL_AFFECTED_IDS_PATH,
@@ -363,6 +364,10 @@ async def codegen_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
         temperature=float(configurable["agent_params"].code_generator.model_temperature),
         max_tokens=configurable["agent_params"].code_generator.max_tokens,
         prompt_pass_sandbox_id_notion_pages=bool(getattr(configurable.get("pipeline_params"), "prompt_pass_sandbox_id_notion_pages", False)),
+        max_rendered_relevant_page_ids=max(
+            int(getattr(configurable.get("pipeline_params"), "max_rendered_relevant_page_ids", 5) or 0),
+            0,
+        ),
     )
     return {
         "generated_code": code_result.get("code", ""),
@@ -414,6 +419,7 @@ async def execute_local_node(state: Dict[str, Any], config: RunnableConfig) -> D
     resource_map = state.get("resource_map", {})
     instrumented_code = wrap_code_with_telemetry(raw_code, local=True, resource_map=resource_map)
     result = await asyncio.to_thread(run_isolated_code, code=instrumented_code, task_id=state["task_id"])
+    pipeline_params = config.get("configurable", {}).get("pipeline_params")
     update_data = _execution_state_update(result, generated_code=raw_code)
 
     # Extract affected IDs from the local temp file
@@ -428,16 +434,22 @@ async def execute_local_node(state: Dict[str, Any], config: RunnableConfig) -> D
                 affected_ids = [x for x in mutated if isinstance(x, str)]
             else:
                 affected_ids = raw_payload if isinstance(raw_payload, list) else []
-    update_data["affected_notion_ids"] = affected_ids
+    cache_ids = _apply_execution_envelope(
+        result=result,
+        update_data=update_data,
+        mutated_page_ids=affected_ids,
+        pipeline_params=pipeline_params,
+    )
 
     # Fire-and-forget refresh for mutated IDs.
     page_cache = config.get("configurable", {}).get("page_cache")
     if page_cache is not None:
         with suppress(Exception):
-            for raw_id in affected_ids:
+            mutated_set = set(normalize_page_ids(affected_ids))
+            for raw_id in cache_ids:
                 rid_str = str(raw_id or "").strip()
                 if rid_str:
-                    page_cache.enqueue(rid_str, force_refresh=True)
+                    page_cache.enqueue(rid_str, force_refresh=rid_str in mutated_set)
 
     return update_data
 
@@ -534,15 +546,21 @@ async def execute_sandbox_node(state: Dict[str, Any], config: RunnableConfig) ->
 
     update_data = _execution_state_update(result, generated_code=raw_code)
     update_data["sandbox_id"] = sandbox_id
-    update_data["affected_notion_ids"] = affected_ids
+    cache_ids = _apply_execution_envelope(
+        result=result,
+        update_data=update_data,
+        mutated_page_ids=affected_ids,
+        pipeline_params=pipeline_params,
+    )
 
     page_cache = config.get("configurable", {}).get("page_cache")
     if page_cache is not None:
         with suppress(Exception):
-            for raw_id in affected_ids:
+            mutated_set = set(normalize_page_ids(affected_ids))
+            for raw_id in cache_ids:
                 rid_str = str(raw_id or "").strip()
                 if rid_str:
-                    page_cache.enqueue(rid_str, force_refresh=True)
+                    page_cache.enqueue(rid_str, force_refresh=rid_str in mutated_set)
 
     return update_data
 
@@ -555,7 +573,15 @@ async def execute_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
 
 
 async def egress_security_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
-    output_text = str(state.get("execution_output") or "")
+    solution_run = state.get("solution_run") if isinstance(state.get("solution_run"), dict) else {}
+    stdout_text = str((solution_run or {}).get("stdout") or "")
+    output_text = "\n".join(
+        [
+            str(state.get("execution_output") or ""),
+            str(state.get("message_to_user") or ""),
+            stdout_text,
+        ]
+    )
     pipeline_params = config.get("configurable", {}).get("pipeline_params")
     egress_checked_tokens = list(getattr(pipeline_params, "egress_checked_tokens", []) or [])
 
@@ -564,6 +590,8 @@ async def egress_security_node(state: Dict[str, Any], config: RunnableConfig) ->
         if token_value and token_value in output_text:
             return {
                 "execution_output": "[SECURITY OVERRIDE - OUTPUT DELETED]",
+                "message_to_user": "[SECURITY OVERRIDE - OUTPUT DELETED]",
+                "execution_status": "error",
                 "terminal_status": "security_blocked",
             }
 

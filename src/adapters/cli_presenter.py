@@ -19,7 +19,8 @@ def format_lifecycle_result(result: Dict[str, Dict[str, Any]]) -> str:
         passed = bool(task_result.get("passed", solution_run.get("passed", False)))
         status = "PASS" if passed else "FAIL"
         output = str(
-            task_result.get("execution_output")
+            task_result.get("message_to_user")
+            or task_result.get("execution_output")
             or task_result.get("output")
             or "(no output)"
         )

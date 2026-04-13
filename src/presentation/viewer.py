@@ -23,6 +23,7 @@ from .sanitization import (
     flatten_notion_properties,
     sanitize_notion_markdown,
 )
+from ..utils.execution_envelope import normalize_page_ids, parse_execution_envelope
 from ..utils.page_cache import CachedPage
 
 
@@ -33,6 +34,8 @@ THEME = {
     "table_header": "bold magenta",
     "panel_style": "dim",
 }
+
+_DEFAULT_RENDER_CAP = 5
 
 
 def _extract_page_payload_candidates(execution_output: str) -> List[str]:
@@ -109,15 +112,44 @@ def _prepare_completed_state(final_state: Dict[str, Any]) -> Dict[str, Any]:
     if str(final_state.get("terminal_status") or "") != "success":
         return final_state
 
-    if final_state.get("affected_notion_ids"):
-        return final_state
+    prepared_state = dict(final_state)
+    message_to_user = str(prepared_state.get("message_to_user") or "").strip()
+    relevant_page_ids = normalize_page_ids(prepared_state.get("relevant_page_ids"))
+    affected_page_ids = normalize_page_ids(prepared_state.get("affected_notion_ids"))
 
-    parsed_output = _try_parse_page_payload(str(final_state.get("execution_output") or ""))
+    if not message_to_user or not relevant_page_ids:
+        envelope = parse_execution_envelope(str(prepared_state.get("execution_output") or ""))
+        if envelope is not None:
+            if not message_to_user:
+                message_to_user = envelope["message_to_user"]
+            if not relevant_page_ids:
+                relevant_page_ids = envelope["relevant_page_ids"]
+            prepared_state["execution_status"] = envelope["execution_status"] or str(
+                prepared_state.get("execution_status") or ""
+            )
+
+    if relevant_page_ids and not affected_page_ids:
+        affected_page_ids = relevant_page_ids[:_DEFAULT_RENDER_CAP]
+
+    if message_to_user:
+        prepared_state["message_to_user"] = message_to_user
+        prepared_state["execution_output"] = message_to_user
+
+    if relevant_page_ids:
+        prepared_state["relevant_page_ids"] = relevant_page_ids
+
+    if affected_page_ids:
+        prepared_state["affected_notion_ids"] = affected_page_ids
+        return prepared_state
+
+    if message_to_user:
+        return prepared_state
+
+    parsed_output = _try_parse_page_payload(str(prepared_state.get("execution_output") or ""))
     page_ids = _collect_page_ids(parsed_output) if parsed_output is not None else []
     if not page_ids:
-        return final_state
+        return prepared_state
 
-    prepared_state = dict(final_state)
     prepared_state["affected_notion_ids"] = page_ids
     prepared_state["execution_output"] = ""
     return prepared_state
@@ -259,16 +291,27 @@ def print_completed_state(final_state: Dict[str, Any], *, prefetched: Optional[D
         return
 
     # --- Success path ---
-    if not affected_ids:
-        # Show raw execution output when no specific pages were affected
-        output = final_state.get("execution_output", "(no output)")
+    user_message = str(final_state.get("message_to_user") or final_state.get("execution_output") or "").strip()
+    if user_message:
         console.print(
             Panel(
-                str(output),
-                title="[bold yellow]Execution Output (no specific pages affected)[/bold yellow]",
-                border_style="yellow",
+                user_message,
+                title="[bold green]Response[/bold green]",
+                border_style="green",
             )
         )
+        console.print()
+
+    if not affected_ids:
+        if not user_message:
+            output = final_state.get("execution_output", "(no output)")
+            console.print(
+                Panel(
+                    str(output),
+                    title="[bold yellow]Execution Output (no specific pages affected)[/bold yellow]",
+                    border_style="yellow",
+                )
+            )
         return
 
     console.print(

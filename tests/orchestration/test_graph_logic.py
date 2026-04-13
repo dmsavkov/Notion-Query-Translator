@@ -247,6 +247,7 @@ def test_pipeline_params_default_egress_tokens_are_expected():
     params = PipelineParams()
     assert params.egress_checked_tokens == ["NOTION_TOKEN"]
     assert params.enable_page_caching is True
+    assert params.max_rendered_relevant_page_ids == 5
 
 
 @pytest.mark.orchestration
@@ -434,6 +435,7 @@ async def test_codegen_node_passes_cfg_to_generate_code():
         "trial_num": 1,
     }
     config = _config(
+        pipeline=PipelineParams(max_rendered_relevant_page_ids=7),
         agent=_make_agent_params(
             code_generator=CodeGeneratorParams(
                 model_name="gemma4",
@@ -458,6 +460,7 @@ async def test_codegen_node_passes_cfg_to_generate_code():
     assert mock_codegen.await_args.kwargs["temperature"] == 0.11
     assert mock_codegen.await_args.kwargs["max_tokens"] == 888
     assert mock_codegen.await_args.kwargs["retry_context"] == "Execution failed with 400 Bad Request"
+    assert mock_codegen.await_args.kwargs["max_rendered_relevant_page_ids"] == 7
 
 
 @pytest.mark.orchestration
@@ -531,6 +534,46 @@ async def test_execute_node_minimal_mode_sets_terminal_status():
 
     assert result["solution_run"]["passed"] is True
     assert result["terminal_status"] == "success"
+
+
+@pytest.mark.orchestration
+@pytest.mark.asyncio
+async def test_execute_node_parses_execution_envelope_and_caps_relevant_ids():
+    state = {
+        "task_id": "envelope_case",
+        "generated_code": (
+            "import json\n"
+            "payload = {\"execution_status\": \"success\", \"message_to_user\": \"I found 8 tasks; showing first 2.\", \"relevant_page_ids\": [\"page-1\", \"page-2\", \"page-3\", \"page-4\", \"page-5\", \"page-6\", \"page-7\", \"page-8\"]}\n"
+            "print('debug')\n"
+            "print(json.dumps(payload))\n"
+        ),
+    }
+
+    result = await execute_node(
+        state,
+        config=_config(
+            pipeline=PipelineParams(
+                execution_method="local",
+                max_rendered_relevant_page_ids=2,
+            )
+        ),
+    )
+
+    assert result["terminal_status"] == "success"
+    assert result["execution_status"] == "success"
+    assert result["message_to_user"] == "I found 8 tasks; showing first 2."
+    assert result["execution_output"] == "I found 8 tasks; showing first 2."
+    assert result["relevant_page_ids"] == [
+        "page-1",
+        "page-2",
+        "page-3",
+        "page-4",
+        "page-5",
+        "page-6",
+        "page-7",
+        "page-8",
+    ]
+    assert result["affected_notion_ids"] == ["page-1", "page-2"]
 
 
 @pytest.mark.orchestration
@@ -609,6 +652,14 @@ async def test_egress_security_node_blocks_when_token_leaks_to_output():
             {"execution_output": "leaked=secret-notion-token"},
             config,
         )
+        blocked_stdout = await egress_security_node(
+            {
+                "execution_output": "all clear",
+                "message_to_user": "all clear",
+                "solution_run": {"stdout": "token still leaked: secret-notion-token"},
+            },
+            config,
+        )
         clean = await egress_security_node(
             {"execution_output": "all clear"},
             config,
@@ -616,6 +667,8 @@ async def test_egress_security_node_blocks_when_token_leaks_to_output():
 
     assert blocked["terminal_status"] == "security_blocked"
     assert blocked["execution_output"] == "[SECURITY OVERRIDE - OUTPUT DELETED]"
+    assert blocked_stdout["terminal_status"] == "security_blocked"
+    assert blocked_stdout["message_to_user"] == "[SECURITY OVERRIDE - OUTPUT DELETED]"
     assert clean == {}
 
 

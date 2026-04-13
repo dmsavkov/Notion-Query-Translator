@@ -112,6 +112,7 @@ class PipelineParams(BaseModel):
     execution_method: Literal["local", "sandbox"] = "sandbox"
     prompt_pass_sandbox_id_notion_pages: bool = False
     enable_page_caching: bool = True
+    max_rendered_relevant_page_ids: int = Field(default=5, ge=0)
     sandbox_template: str = "notion-query-execution-sandbox"
     sandbox_client_timeout_seconds: int = 5 * 60
     sandbox_execution_timeout_seconds: int = 15
@@ -156,6 +157,9 @@ class PipelineState(TypedDict):
     function_name: str
     solution_run: Dict[str, Any]
     execution_output: str
+    execution_status: str
+    message_to_user: str
+    relevant_page_ids: List[str]
     reflection_context: List[str]
     retry_context: str
     feedback: str
@@ -192,6 +196,9 @@ def generate_default_state() -> PipelineState:
         "function_name": "",
         "solution_run": {},
         "execution_output": "",
+        "execution_status": "",
+        "message_to_user": "",
+        "relevant_page_ids": [],
         "reflection_context": [],
         "retry_context": "",
         "feedback": "",

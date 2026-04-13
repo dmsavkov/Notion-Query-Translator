@@ -288,6 +288,22 @@ def build_codegen_env_context(*, prompt_pass_sandbox_id_notion_pages: bool = Fal
     return CODEGEN_ENV_CONTEXT
 
 
+def build_execution_envelope_contract(*, max_rendered_relevant_page_ids: int = 5) -> str:
+    return (
+        "<execution_envelope_contract>\n"
+        "The generated Python module must print one JSON object on the FINAL stdout line.\n"
+        'That envelope is for the app runtime, not the model response. The model still returns JSON with code/function_name at the end of this prompt.\n'
+        'Required envelope shape: {"execution_status": "success|error", "message_to_user": "...", "relevant_page_ids": ["uuid-1", "uuid-2"]}\n'
+        "Rules:\n"
+        "  • execution_status is payload metadata for the UI and logs; the server decides graph success/failure deterministically.\n"
+        "  • message_to_user is the human-facing summary to reuse in the UI.\n"
+        "  • relevant_page_ids is a JSON array of page ID strings; return the full list even if the UI later caps rendering.\n"
+        f"  • If more than {max_rendered_relevant_page_ids} IDs are relevant, still return the FULL list; rendering is capped server-side.\n"
+        "  • Do not print another human-readable summary after the envelope.\n"
+        "</execution_envelope_contract>\n"
+    )
+
+
 
 
 
@@ -298,6 +314,7 @@ def build_generate_code_prompt(
     retry_context: Optional[str] = None,
     feedback: Optional[str] = None,
     prompt_pass_sandbox_id_notion_pages: bool = False,
+    max_rendered_relevant_page_ids: int = 5,
 ) -> str:
     role_block = (
         "<codegen_role>\n"
@@ -340,6 +357,7 @@ def build_generate_code_prompt(
         f"{feedback_block}\n"
         f"{build_codegen_env_context(prompt_pass_sandbox_id_notion_pages=prompt_pass_sandbox_id_notion_pages)}\n\n"
         f"{CODEGEN_RESOURCE_MAP_POLICY}\n\n"
+        f"{build_execution_envelope_contract(max_rendered_relevant_page_ids=max_rendered_relevant_page_ids)}\n"
         "Write a complete Python module that:\n"
         "  • Implements the function(s) described in <user_request>.\n"
         "  • Uses ONLY the endpoints and field names in <api_context> — no invented URLs or fields.\n"
@@ -357,7 +375,7 @@ def build_generate_code_prompt(
         "  • Use the `requests` library for HTTP calls.\n"
         "  • Every HTTP request header dict MUST include `'Notion-Version': '2022-06-28'`.\n"
         "  • Raise a descriptive Exception on any non-2xx API response, but print the 'e.response.text' for debugging.\n"
-        "  • IMPORTANT: Always print the final result or any relevant output to stdout so it can be captured by the system.\n"
+        "  • IMPORTANT: The final stdout line must be the execution envelope JSON; if you need a summary, place it in message_to_user.\n"
         "  • `if __name__ == '__main__':` block that calls the function with os.getenv values.\n"
         "  • The `if __name__ == '__main__':` block MUST call `sys.exit(1)` if the function raises any exception or returns an error state.\n"
         "  • PROHIBITED: Do NOT implement any custom 'search' or 'title resolution' logic if the title is already listed in <resource_map_context> (if provided). Use the ID from `RESOURCE_MAP` instead.\n  "
