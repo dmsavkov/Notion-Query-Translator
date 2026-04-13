@@ -37,6 +37,8 @@ The agent will:
 
 ---
 
+For a deeper explanation of the runtime mechanics, see [docs/implementation-notes.md](docs/implementation-notes.md).
+
 ## 🚀 Getting Started
 
 ### Prerequisites
