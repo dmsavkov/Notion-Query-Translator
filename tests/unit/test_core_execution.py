@@ -159,6 +159,42 @@ async def test_execute_single_reads_prompt_from_nested_input_state():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_execute_single_passes_page_cache_flag_from_pipeline_config():
+    final_state = {
+        "task_id": "task-1",
+        "user_prompt": "Write code",
+        "generated_code": "print(42)",
+        "function_name": "main",
+        "solution_run": {"exit_code": 0, "stdout": "42\n", "stderr": "", "passed": True},
+        "execution_output": "42\n",
+        "final_code": "print(42)",
+        "trials": [],
+    }
+    pipeline = _pipeline_mock_with_final_state(final_state)
+    app_config = _build_app_config()
+    app_config = AppConfig(
+        pipeline=PipelineParams(enable_page_caching=False),
+        static=app_config.static,
+        agent=app_config.agent,
+        rag=app_config.rag,
+    )
+
+    with patch("src.core.execute_single.AsyncPageCache") as mock_cache:
+        mock_cache.return_value = MagicMock()
+
+        result = await execute_single(
+            tasks={"task-1": {"query": "Write code"}},
+            app_config=app_config,
+            pipeline=pipeline,
+            thread_id="thread-123",
+        )
+
+    assert result == {"task-1": final_state}
+    mock_cache.assert_called_once_with(enabled=False)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_execute_single_returns_error_state_when_pipeline_raises():
     pipeline = AsyncMock()
     pipeline.astream = MagicMock(side_effect=RuntimeError("boom"))

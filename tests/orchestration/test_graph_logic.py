@@ -246,6 +246,7 @@ def test_static_params_defaults_are_expected():
 def test_pipeline_params_default_egress_tokens_are_expected():
     params = PipelineParams()
     assert params.egress_checked_tokens == ["NOTION_TOKEN"]
+    assert params.enable_page_caching is True
 
 
 @pytest.mark.orchestration

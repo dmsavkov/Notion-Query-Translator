@@ -127,6 +127,8 @@ def make_codegen_reflect_target(settings: CodeGenerationEvaluationSettings):
 		minimal=False,
 		max_trials=int(settings.max_trials),
 		execution_method=settings.execution_method,
+		prompt_pass_sandbox_id_notion_pages=True,
+		enable_page_caching=False,
 	)
 	base_target = make_partial_live_eval_target(
 		static_params,

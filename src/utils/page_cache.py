@@ -33,10 +33,14 @@ def _normalize_id(value: str) -> str:
 class AsyncPageCache:
     """Task registry with dedupe and optional refresh."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, enabled: bool = True) -> None:
+        self.enabled = enabled
         self._tasks: Dict[str, asyncio.Task[CachedPage]] = {}
 
     def enqueue(self, page_or_block_id: str, *, force_refresh: bool = False) -> None:
+        if not self.enabled:
+            return
+
         raw_id = _normalize_id(page_or_block_id)
         if not raw_id:
             return

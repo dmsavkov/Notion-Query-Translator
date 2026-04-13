@@ -81,7 +81,7 @@ async def _execute_single_task(
         initial_state["user_prompt"] = prompt
     initial_state["task_id"] = task_id
 
-    page_cache = AsyncPageCache()
+    page_cache = AsyncPageCache(enabled=bool(app_config.pipeline.enable_page_caching))
 
     config = _build_running_config(
         task_id=task_id,

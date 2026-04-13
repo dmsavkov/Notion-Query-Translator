@@ -8,6 +8,19 @@ from src.utils.page_cache import AsyncPageCache, CachedPage
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_page_cache_disabled_skips_enqueue():
+    cache = AsyncPageCache(enabled=False)
+
+    cache.enqueue("id-1")
+
+    out = await cache.gather_all()
+
+    assert out == {}
+    assert cache._tasks == {}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_page_cache_dedup_enqueue_calls_fetch_once(monkeypatch: pytest.MonkeyPatch):
     cache = AsyncPageCache()
     fetch = AsyncMock(return_value=CachedPage(page_id="p1", properties={}, markdown=""))
