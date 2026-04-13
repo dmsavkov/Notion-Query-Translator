@@ -17,9 +17,14 @@ CODEGEN_ENV_CONTEXT = (
     "  NOTION_TASKS_DATABASE_ID    – Database ID for tasks\n"
     "  NOTION_PROJECTS_DATABASE_ID – Database ID for projects\n"
     "  NOTION_INBOX_PAGE_ID        – Target page ID for additions (for appending, inserting, updating content)\n"
+    "</notion_env_keys>"
+)
+
+CODEGEN_SANDBOX_ID_CONTEXT = (
+    "\n<notion_sandbox_page_ids>\n"
     "  NOTION_ID_PROJECT_PAGE_ID           – Id of exactly the project with the name 'NOTION_ID_PROJECT_PAGE_ID'\n"
     "  NOTION_ID_UPDATE_PAGE_ID            – Id of exactly the task with the name 'NOTION_ID_UPDATE_PAGE_ID'\n"
-    "</notion_env_keys>"
+    "</notion_sandbox_page_ids>"
 )
 
 CODEGEN_RESOURCE_MAP_POLICY = (
@@ -277,6 +282,12 @@ def build_generate_request_plan_prompt(user_prompt: str, rag_context: str) -> st
     )
 
 
+def build_codegen_env_context(*, prompt_pass_sandbox_id_notion_pages: bool = False) -> str:
+    if prompt_pass_sandbox_id_notion_pages:
+        return f"{CODEGEN_ENV_CONTEXT}{CODEGEN_SANDBOX_ID_CONTEXT}"
+    return CODEGEN_ENV_CONTEXT
+
+
 
 
 
@@ -286,6 +297,7 @@ def build_generate_code_prompt(
     test_code: str,
     retry_context: Optional[str] = None,
     feedback: Optional[str] = None,
+    prompt_pass_sandbox_id_notion_pages: bool = False,
 ) -> str:
     role_block = (
         "<codegen_role>\n"
@@ -326,7 +338,7 @@ def build_generate_code_prompt(
         f"<general_info>\n{general_info}\n</general_info>\n"
         f"{retry_context_block}"
         f"{feedback_block}\n"
-        f"{CODEGEN_ENV_CONTEXT}\n\n"
+        f"{build_codegen_env_context(prompt_pass_sandbox_id_notion_pages=prompt_pass_sandbox_id_notion_pages)}\n\n"
         f"{CODEGEN_RESOURCE_MAP_POLICY}\n\n"
         "Write a complete Python module that:\n"
         "  • Implements the function(s) described in <user_request>.\n"

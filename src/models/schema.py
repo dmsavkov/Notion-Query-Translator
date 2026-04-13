@@ -110,6 +110,7 @@ class PipelineParams(BaseModel):
     max_trials: int = 2
     reflector_used: Literal["self", "none", "external"] = "self"
     execution_method: Literal["local", "sandbox"] = "sandbox"
+    prompt_pass_sandbox_id_notion_pages: bool = False
     sandbox_template: str = "notion-query-execution-sandbox"
     sandbox_client_timeout_seconds: int = 5 * 60
     sandbox_execution_timeout_seconds: int = 15

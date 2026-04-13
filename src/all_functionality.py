@@ -455,6 +455,7 @@ async def generate_code(
     model_size: str = "gemma27",
     temperature: float = 0.3,
     max_tokens: int = 2500,
+    prompt_pass_sandbox_id_notion_pages: bool = False,
 ) -> Dict[str, str]:
     """
     Generate the solution code.
@@ -476,6 +477,7 @@ async def generate_code(
         test_code=test_code,
         retry_context=retry_context,
         feedback=feedback,
+        prompt_pass_sandbox_id_notion_pages=prompt_pass_sandbox_id_notion_pages,
     )
 
     result: Dict = await async_chat_wrapper(

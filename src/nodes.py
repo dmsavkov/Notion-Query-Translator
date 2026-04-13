@@ -362,6 +362,7 @@ async def codegen_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[st
         model_size=str(configurable["agent_params"].code_generator.model_name),
         temperature=float(configurable["agent_params"].code_generator.model_temperature),
         max_tokens=configurable["agent_params"].code_generator.max_tokens,
+        prompt_pass_sandbox_id_notion_pages=bool(getattr(configurable.get("pipeline_params"), "prompt_pass_sandbox_id_notion_pages", False)),
     )
     return {
         "generated_code": code_result.get("code", ""),
