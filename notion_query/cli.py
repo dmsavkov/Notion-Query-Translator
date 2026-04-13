@@ -123,13 +123,22 @@ async def _run_with_spinner(
     return result
 
 
-async def _run_iteration_async(*, user_prompt: str, think: bool) -> dict[str, Any]:
+async def _run_iteration_async(
+    *,
+    user_prompt: str,
+    think: bool,
+    max_rendered_relevant_page_ids: int,
+) -> dict[str, Any]:
     # Reset bridge state for each independent turn
     ui_bridge.current_node = "initializing"
     ui_bridge.trial_num = 0
     ui_bridge.disambiguator = cli_disambiguator
 
-    cli_params = CliParams(user_prompt=user_prompt, think=think)
+    cli_params = CliParams(
+        user_prompt=user_prompt,
+        think=think,
+        max_rendered_relevant_page_ids=max_rendered_relevant_page_ids,
+    )
     app_config = build_app_config_from_cli(cli_params=cli_params)
     eval_tasks = build_cli_eval_tasks(cli_params)
 
@@ -143,7 +152,11 @@ async def _run_iteration_async(*, user_prompt: str, think: bool) -> dict[str, An
             prefetched = await page_cache.gather_all()
         except Exception:
             prefetched = None
-    print_completed_state(task_result, prefetched=prefetched)
+    print_completed_state(
+        task_result,
+        prefetched=prefetched,
+        render_cap=max_rendered_relevant_page_ids,
+    )
     if page_cache is not None:
         with suppress(Exception):
             page_cache.cancel_all()
@@ -151,8 +164,14 @@ async def _run_iteration_async(*, user_prompt: str, think: bool) -> dict[str, An
     return task_result
 
 
-def _run_iteration(*, user_prompt: str, think: bool) -> dict[str, Any]:
-    return asyncio.run(_run_iteration_async(user_prompt=user_prompt, think=think))
+def _run_iteration(*, user_prompt: str, think: bool, max_rendered_relevant_page_ids: int) -> dict[str, Any]:
+    return asyncio.run(
+        _run_iteration_async(
+            user_prompt=user_prompt,
+            think=think,
+            max_rendered_relevant_page_ids=max_rendered_relevant_page_ids,
+        )
+    )
 
 
 def _render_shell_startup(settings: ShellSettings) -> None:
@@ -160,8 +179,11 @@ def _render_shell_startup(settings: ShellSettings) -> None:
     console.print(f"[dim]{format_shell_status(settings)}[/dim]\n")
 
 
-async def _interactive_shell_async(*, initial_think: bool = False) -> None:
-    settings = ShellSettings(think=initial_think)
+async def _interactive_shell_async(*, initial_think: bool = False, max_rendered_relevant_page_ids: int = 5) -> None:
+    settings = ShellSettings(
+        think=initial_think,
+        max_rendered_relevant_page_ids=max_rendered_relevant_page_ids,
+    )
 
     _render_shell_startup(settings)
 
@@ -197,7 +219,11 @@ async def _interactive_shell_async(*, initial_think: bool = False) -> None:
 
         console.print(f"[bold]Prompt:[/bold] {dispatch.prompt}\n")
         try:
-            task_result = await _run_iteration_async(user_prompt=dispatch.prompt, think=settings.think)
+            task_result = await _run_iteration_async(
+                user_prompt=dispatch.prompt,
+                think=settings.think,
+                max_rendered_relevant_page_ids=settings.max_rendered_relevant_page_ids,
+            )
         except KeyboardInterrupt:
             console.print("[yellow]Run interrupted. Back to prompt.[/yellow]\n")
             continue
@@ -211,8 +237,13 @@ async def _interactive_shell_async(*, initial_think: bool = False) -> None:
             console.print("[dim]Ready for the next prompt.[/dim]\n")
 
 
-def interactive_shell(*, initial_think: bool = False) -> None:
-    asyncio.run(_interactive_shell_async(initial_think=initial_think))
+def interactive_shell(*, initial_think: bool = False, max_rendered_relevant_page_ids: int = 5) -> None:
+    asyncio.run(
+        _interactive_shell_async(
+            initial_think=initial_think,
+            max_rendered_relevant_page_ids=max_rendered_relevant_page_ids,
+        )
+    )
 
 
 @app.command()
@@ -227,6 +258,11 @@ def run(
         "-t",
         help="Enable reflection (not 'Minimal' mode)",
     ),
+    max_rendered_relevant_page_ids: int = typer.Option(
+        5,
+        "--max-rendered-relevant-page-ids",
+        help="Maximum number of affected pages to render at the end of a run.",
+    ),
 ) -> None:
     """Run the Notion agent pipeline for a single user prompt."""
 
@@ -239,7 +275,10 @@ def run(
     _setup_log_routing()
 
     if not user_prompt:
-        interactive_shell(initial_think=think)
+        interactive_shell(
+            initial_think=think,
+            max_rendered_relevant_page_ids=max_rendered_relevant_page_ids,
+        )
         return
 
     # Single-shot behavior remains available for direct prompt invocation.
@@ -247,7 +286,11 @@ def run(
     console.print(f"[bold]Prompt:[/bold] {user_prompt}\n")
 
     try:
-        task_result = _run_iteration(user_prompt=user_prompt, think=think)
+        task_result = _run_iteration(
+            user_prompt=user_prompt,
+            think=think,
+            max_rendered_relevant_page_ids=max_rendered_relevant_page_ids,
+        )
     except KeyboardInterrupt:
         console.print("[yellow]Interrupted.[/yellow]")
         raise typer.Exit(code=130)

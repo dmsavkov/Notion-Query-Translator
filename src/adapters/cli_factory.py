@@ -13,7 +13,10 @@ def build_app_config_from_cli(
     rag_build_config: Optional[RagBuildConfig] = None,
 ) -> AppConfig:
     final_pipeline_params = (pipeline_params or PipelineParams()).model_copy(
-        update={"minimal": not cli_params.think}
+        update={
+            "minimal": not cli_params.think,
+            "max_rendered_relevant_page_ids": cli_params.max_rendered_relevant_page_ids,
+        }
     )
 
     return AppConfig(

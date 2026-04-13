@@ -424,6 +424,28 @@ class TestViewer:
 
     @patch("src.presentation.viewer.fetch_page_properties")
     @patch("src.presentation.viewer.fetch_page_markdown")
+    def test_success_with_more_relevant_ids_shows_truncation_notice(
+        self,
+        mock_md: Any,
+        mock_props: Any,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        mock_props.return_value = _load_page_properties()
+        mock_md.return_value = _load_page_markdown()
+
+        state = {
+            "terminal_status": "success",
+            "execution_output": "",
+            "relevant_page_ids": ["page-1", "page-2", "page-3"],
+            "affected_notion_ids": ["page-1", "page-2"],
+        }
+        print_completed_state(state, render_cap=2)
+        captured = capsys.readouterr().out
+        assert "Rendered Pages Truncated" in captured
+        assert "Showing 2 of 3" in captured
+
+    @patch("src.presentation.viewer.fetch_page_properties")
+    @patch("src.presentation.viewer.fetch_page_markdown")
     def test_success_with_message_and_ids_renders_both(
         self,
         mock_md: Any,

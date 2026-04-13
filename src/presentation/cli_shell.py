@@ -21,6 +21,7 @@ class ShellSettings:
     """Session-scoped shell flags."""
 
     think: bool = False
+    max_rendered_relevant_page_ids: int = 5
 
 
 @dataclass
@@ -38,19 +39,23 @@ def create_prompt_session() -> PromptSession[str]:
 
 def format_shell_status(settings: ShellSettings) -> str:
     mode = "ON" if settings.think else "OFF"
-    return f"Session config: think={mode}. Commands: /config [--think|--no-think], /clear, /exit"
+    return (
+        "Session config: "
+        f"think={mode}, max_rendered_relevant_page_ids={settings.max_rendered_relevant_page_ids}. "
+        "Commands: /config [--think|--no-think] [--max-rendered-relevant-page-ids N], /clear, /exit"
+    )
 
 
 def _handle_config_command(args: list[str], settings: ShellSettings) -> ShellDispatchResult:
     if not args:
         return ShellDispatchResult(action="continue", message=f"[dim]{format_shell_status(settings)}[/dim]")
 
-    allowed = {"--think", "--no-think"}
-    invalid = [arg for arg in args if arg not in allowed]
+    allowed = {"--think", "--no-think", "--max-rendered-relevant-page-ids"}
+    invalid = [arg for arg in args if arg not in allowed and not arg.isdigit()]
     if invalid:
         return ShellDispatchResult(
             action="continue",
-            message="[yellow]Usage:[/yellow] /config [--think|--no-think]",
+            message="[yellow]Usage:[/yellow] /config [--think|--no-think] [--max-rendered-relevant-page-ids N]",
         )
 
     has_think = "--think" in args
@@ -65,6 +70,15 @@ def _handle_config_command(args: list[str], settings: ShellSettings) -> ShellDis
         settings.think = True
     if has_no_think:
         settings.think = False
+
+    if "--max-rendered-relevant-page-ids" in args:
+        value_index = args.index("--max-rendered-relevant-page-ids") + 1
+        if value_index >= len(args) or not args[value_index].isdigit():
+            return ShellDispatchResult(
+                action="continue",
+                message="[yellow]Usage:[/yellow] /config [--think|--no-think] [--max-rendered-relevant-page-ids N]",
+            )
+        settings.max_rendered_relevant_page_ids = max(int(args[value_index]), 0)
 
     return ShellDispatchResult(action="continue", message=f"[dim]{format_shell_status(settings)}[/dim]")
 

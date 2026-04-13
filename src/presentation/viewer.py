@@ -107,7 +107,7 @@ def _collect_page_ids(value: Any) -> List[str]:
     return deduped
 
 
-def _prepare_completed_state(final_state: Dict[str, Any]) -> Dict[str, Any]:
+def _prepare_completed_state(final_state: Dict[str, Any], *, render_cap: int = _DEFAULT_RENDER_CAP) -> Dict[str, Any]:
     """Promote page-shaped stdout into the normal page rendering flow."""
     if str(final_state.get("terminal_status") or "") != "success":
         return final_state
@@ -129,7 +129,7 @@ def _prepare_completed_state(final_state: Dict[str, Any]) -> Dict[str, Any]:
             )
 
     if relevant_page_ids and not affected_page_ids:
-        affected_page_ids = relevant_page_ids[:_DEFAULT_RENDER_CAP]
+        affected_page_ids = relevant_page_ids[:render_cap]
 
     if message_to_user:
         prepared_state["message_to_user"] = message_to_user
@@ -138,7 +138,7 @@ def _prepare_completed_state(final_state: Dict[str, Any]) -> Dict[str, Any]:
     if relevant_page_ids:
         prepared_state["relevant_page_ids"] = relevant_page_ids
 
-    if affected_page_ids:
+    if affected_page_ids or relevant_page_ids or message_to_user:
         prepared_state["affected_notion_ids"] = affected_page_ids
         return prepared_state
 
@@ -150,7 +150,8 @@ def _prepare_completed_state(final_state: Dict[str, Any]) -> Dict[str, Any]:
     if not page_ids:
         return prepared_state
 
-    prepared_state["affected_notion_ids"] = page_ids
+    prepared_state["relevant_page_ids"] = page_ids
+    prepared_state["affected_notion_ids"] = page_ids[:render_cap]
     prepared_state["execution_output"] = ""
     return prepared_state
 
@@ -229,17 +230,46 @@ def _render_single_page(console: Console, page_id: str, *, cached: Optional[Cach
         console.print("[dim]No content available[/dim]")
 
 
-def print_completed_state(final_state: Dict[str, Any], *, prefetched: Optional[Dict[str, CachedPage]] = None) -> None:
+def _render_truncation_notice(
+    console: Console,
+    *,
+    relevant_page_ids: List[str],
+    rendered_count: int,
+    render_cap: int,
+) -> None:
+    total_count = len(relevant_page_ids)
+    if total_count <= rendered_count:
+        return
+
+    console.print(
+        Panel(
+            (
+                f"Showing {rendered_count} of {total_count} relevant page(s).\n\n"
+                f"Current render limit: {render_cap}. Increase it with --max-rendered-relevant-page-ids to show more."
+            ),
+            title="[bold yellow]Rendered Pages Truncated[/bold yellow]",
+            border_style="yellow",
+        )
+    )
+
+
+def print_completed_state(
+    final_state: Dict[str, Any],
+    *,
+    prefetched: Optional[Dict[str, CachedPage]] = None,
+    render_cap: int = _DEFAULT_RENDER_CAP,
+) -> None:
     """Inspect the pipeline's terminal state and render results.
 
     - On success: fetches each affected Notion page and pretty-prints
       its properties + markdown body.
     - On failure / security-blocked: shows an error panel.
     """
-    final_state = _prepare_completed_state(final_state)
+    final_state = _prepare_completed_state(final_state, render_cap=render_cap)
     console = Console()
     terminal_status = final_state.get("terminal_status", "pending")
     affected_ids: List[str] = final_state.get("affected_notion_ids", [])
+    relevant_ids: List[str] = final_state.get("relevant_page_ids", [])
 
     # --- Failure paths ---
     if terminal_status == "security_blocked":
@@ -312,6 +342,12 @@ def print_completed_state(final_state: Dict[str, Any], *, prefetched: Optional[D
                     border_style="yellow",
                 )
             )
+        _render_truncation_notice(
+            console,
+            relevant_page_ids=relevant_ids,
+            rendered_count=len(affected_ids),
+            render_cap=render_cap,
+        )
         return
 
     console.print(
@@ -327,3 +363,10 @@ def print_completed_state(final_state: Dict[str, Any], *, prefetched: Optional[D
         cached = cache_by_page_id.get(page_id)
         _render_single_page(console, page_id, cached=cached)
         console.print()  # spacing
+
+    _render_truncation_notice(
+        console,
+        relevant_page_ids=relevant_ids,
+        rendered_count=len(affected_ids),
+        render_cap=render_cap,
+    )

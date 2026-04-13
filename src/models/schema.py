@@ -126,6 +126,7 @@ class CliParams(BaseModel):
 
     user_prompt: str
     think: bool = False
+    max_rendered_relevant_page_ids: int = Field(default=5, ge=0)
 
     model_config = ConfigDict(frozen=True)
 
