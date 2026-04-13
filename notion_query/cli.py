@@ -132,7 +132,15 @@ async def _run_iteration_async(*, user_prompt: str, think: bool) -> dict[str, An
 
     result = await _run_with_spinner(tasks=eval_tasks, app_config=app_config)
     task_result = result.get("user_request", {})
-    print_completed_state(task_result)
+    task_id = str(task_result.get("task_id") or "user_request")
+    page_cache = ui_bridge.page_caches.get(task_id)
+    prefetched = None
+    if page_cache is not None:
+        try:
+            prefetched = await page_cache.gather_all()
+        except Exception:
+            prefetched = None
+    print_completed_state(task_result, prefetched=prefetched)
     return task_result
 
 

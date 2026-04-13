@@ -227,6 +227,18 @@ async def resolve_resources_node(state: Dict[str, Any], config: RunnableConfig) 
                 "resource_map": resource_map,
             }
 
+    # Opportunistically prefetch resource pages in the background.
+    page_cache = config.get("configurable", {}).get("page_cache")
+    if page_cache is not None:
+        with suppress(Exception):
+            seen_ids: set[str] = set()
+            for rid in resource_map.values():
+                rid_str = str(rid or "").strip()
+                if not rid_str or rid_str in seen_ids:
+                    continue
+                seen_ids.add(rid_str)
+                page_cache.enqueue(rid_str, force_refresh=False)
+
     return {"resource_map": resource_map}
 
 
@@ -408,9 +420,24 @@ async def execute_local_node(state: Dict[str, Any], config: RunnableConfig) -> D
     with suppress(Exception):
         ids_path = Path(LOCAL_AFFECTED_IDS_PATH)
         if ids_path.exists():
-            affected_ids = json.loads(ids_path.read_text())
+            raw_payload = json.loads(ids_path.read_text())
             ids_path.unlink(missing_ok=True)
+            if isinstance(raw_payload, dict):
+                mutated = raw_payload.get("mutated", [])
+                affected_ids = [x for x in mutated if isinstance(x, str)]
+            else:
+                affected_ids = raw_payload if isinstance(raw_payload, list) else []
     update_data["affected_notion_ids"] = affected_ids
+
+    # Fire-and-forget refresh for mutated IDs.
+    page_cache = config.get("configurable", {}).get("page_cache")
+    if page_cache is not None:
+        with suppress(Exception):
+            for raw_id in affected_ids:
+                rid_str = str(raw_id or "").strip()
+                if rid_str:
+                    page_cache.enqueue(rid_str, force_refresh=True)
+
     return update_data
 
 
@@ -497,11 +524,25 @@ async def execute_sandbox_node(state: Dict[str, Any], config: RunnableConfig) ->
     if sandbox is not None:
         with suppress(Exception):
             file_bytes = await asyncio.to_thread(sandbox.files.read, AFFECTED_IDS_PATH)
-            affected_ids = json.loads(file_bytes)
+            raw_payload = json.loads(file_bytes)
+            if isinstance(raw_payload, dict):
+                mutated = raw_payload.get("mutated", [])
+                affected_ids = [x for x in mutated if isinstance(x, str)]
+            else:
+                affected_ids = raw_payload if isinstance(raw_payload, list) else []
 
     update_data = _execution_state_update(result, generated_code=raw_code)
     update_data["sandbox_id"] = sandbox_id
     update_data["affected_notion_ids"] = affected_ids
+
+    page_cache = config.get("configurable", {}).get("page_cache")
+    if page_cache is not None:
+        with suppress(Exception):
+            for raw_id in affected_ids:
+                rid_str = str(raw_id or "").strip()
+                if rid_str:
+                    page_cache.enqueue(rid_str, force_refresh=True)
+
     return update_data
 
 

@@ -44,6 +44,49 @@ def fetch_page_properties(page_id: str) -> Dict[str, Any]:
     return _request_notion_json(f"{NOTION_API_BASE}/pages/{page_id}")
 
 
+def fetch_block(block_id: str) -> Dict[str, Any]:
+    """Fetch the raw Notion block object (content, parent pointers)."""
+    return _request_notion_json(f"{NOTION_API_BASE}/blocks/{block_id}")
+
+
+def resolve_block_to_page_id(block_id: str, *, max_depth: int = 20) -> Optional[str]:
+    """Resolve a block ID to its owning page ID when possible.
+
+    Walks `parent.block_id` chains up to `max_depth` to find a `parent.page_id`.
+    Returns None when no page parent can be determined.
+    """
+    current_id = str(block_id or "").strip()
+    if not current_id:
+        return None
+
+    visited: set[str] = set()
+    for _ in range(max_depth):
+        if current_id in visited:
+            return None
+        visited.add(current_id)
+
+        data = fetch_block(current_id)
+        parent = data.get("parent") if isinstance(data, dict) else None
+        if not isinstance(parent, dict):
+            return None
+
+        parent_type = parent.get("type")
+        if parent_type == "page_id":
+            page_id = parent.get("page_id")
+            return str(page_id).strip() if isinstance(page_id, str) and page_id.strip() else None
+        if parent_type == "block_id":
+            next_id = parent.get("block_id")
+            if not isinstance(next_id, str) or not next_id.strip():
+                return None
+            current_id = next_id.strip()
+            continue
+
+        # database_id, workspace, or unknown parent type
+        return None
+
+    return None
+
+
 def search_pages_by_title(title: str, limit: int = 10) -> list[Dict[str, Any]]:
     """Search for Notion pages matching the given title."""
     payload = {

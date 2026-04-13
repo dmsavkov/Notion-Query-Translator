@@ -23,6 +23,7 @@ from .sanitization import (
     flatten_notion_properties,
     sanitize_notion_markdown,
 )
+from ..utils.page_cache import CachedPage
 
 
 # Theme configuration
@@ -131,11 +132,15 @@ def _extract_page_title(flat_props: Dict[str, Any]) -> str:
     return f"Page {str(page_id)[:8]}"
 
 
-def _render_single_page(console: Console, page_id: str) -> None:
+def _render_single_page(console: Console, page_id: str, *, cached: Optional[CachedPage] = None) -> None:
     """Fetch, flatten, and render a single Notion page."""
     try:
-        raw_props = fetch_page_properties(page_id)
-        raw_md = fetch_page_markdown(page_id)
+        if cached is not None and cached.page_id:
+            raw_props = cached.properties
+            raw_md = cached.markdown
+        else:
+            raw_props = fetch_page_properties(page_id)
+            raw_md = fetch_page_markdown(page_id)
     except Exception as exc:
         console.print(
             Panel(
@@ -192,7 +197,7 @@ def _render_single_page(console: Console, page_id: str) -> None:
         console.print("[dim]No content available[/dim]")
 
 
-def print_completed_state(final_state: Dict[str, Any]) -> None:
+def print_completed_state(final_state: Dict[str, Any], *, prefetched: Optional[Dict[str, CachedPage]] = None) -> None:
     """Inspect the pipeline's terminal state and render results.
 
     - On success: fetches each affected Notion page and pretty-prints
@@ -269,6 +274,13 @@ def print_completed_state(final_state: Dict[str, Any]) -> None:
     console.print(
         f"\n[bold cyan]📄 {len(affected_ids)} page(s) affected[/bold cyan]\n"
     )
+    cache_by_page_id: Dict[str, CachedPage] = {}
+    if prefetched:
+        for item in prefetched.values():
+            if isinstance(item, CachedPage) and item.page_id:
+                cache_by_page_id[item.page_id] = item
+
     for page_id in affected_ids:
-        _render_single_page(console, page_id)
+        cached = cache_by_page_id.get(page_id)
+        _render_single_page(console, page_id, cached=cached)
         console.print()  # spacing

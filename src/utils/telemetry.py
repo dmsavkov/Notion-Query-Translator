@@ -21,7 +21,8 @@ _TELEMETRY_HEADER = textwrap.dedent("""\
     import os as __sys_os
     import sys as __sys_sys
 
-    __system_affected_ids = set()
+    __system_read_ids = set()
+    __system_mutated_ids = set()
     __current_request = __sys_requests.Session.request
     __original_request = getattr(__current_request, "__telemetry_original__", __current_request)
     __uuid_pattern = __sys_re.compile(
@@ -29,15 +30,20 @@ _TELEMETRY_HEADER = textwrap.dedent("""\
     )
 
     def __telemetry_request(self, method, url, *args, **kwargs):
-        if method.upper() in ("GET", "PATCH", "POST", "DELETE"):
+        __m = str(method or "").upper()
+        if __m in ("GET", "PATCH", "POST", "DELETE"):
             if "api.notion.com/v1/pages/" in url or "api.notion.com/v1/blocks/" in url:
                 try:
                     endpoint = "/pages/" if "/pages/" in url else "/blocks/"
                     page_id = url.split(endpoint)[1].split("?")[0].split("/")[0]
                     page_id_clean = page_id.replace("-", "")
                     if __uuid_pattern.match(page_id_clean):
-                        __system_affected_ids.add(page_id.lower())
-                        print(f"[telemetry] tracked: {page_id.lower()}", file=__sys_sys.stderr)
+                        __pid = page_id.lower()
+                        if __m == "GET":
+                            __system_read_ids.add(__pid)
+                        else:
+                            __system_mutated_ids.add(__pid)
+                        print(f"[telemetry] tracked({__m}): {__pid}", file=__sys_sys.stderr)
                 except (IndexError, AttributeError):
                     pass
         return __original_request(self, method, url, *args, **kwargs)
@@ -64,7 +70,10 @@ def _telemetry_footer(output_path: str) -> str:
         try:
             __sys_os.makedirs(__sys_os.path.dirname("{output_path}") or ".", exist_ok=True)
             with open("{output_path}", "w") as __f:
-                __sys_json.dump(list(__system_affected_ids), __f)
+                __sys_json.dump(
+                    {{"read": list(__system_read_ids), "mutated": list(__system_mutated_ids)}},
+                    __f,
+                )
         except Exception:
             pass
     """)

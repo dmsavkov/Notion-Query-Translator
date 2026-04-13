@@ -9,6 +9,7 @@ from ..models.config import AppConfig
 from ..models.schema import PipelineState, generate_default_state
 from ..utils.execution_utils import generate_thread_id
 from ..presentation import ui_bridge
+from ..utils.page_cache import AsyncPageCache
 
 
 def _to_metadata_dict(value: Any) -> Dict[str, Any]:
@@ -26,6 +27,7 @@ def _build_running_config(
     thread_id: str,
     app_config: AppConfig,
     qdrant_client: Any,
+    page_cache: Any = None,
 ) -> RunnableConfig:
     return RunnableConfig(
         configurable={
@@ -35,6 +37,7 @@ def _build_running_config(
             "agent_params": app_config.agent,
             "rag_build_config": app_config.rag,
             "qdrant_client": qdrant_client,
+            "page_cache": page_cache,
         },
         metadata={
             "task_id": task_id,
@@ -78,11 +81,14 @@ async def _execute_single_task(
         initial_state["user_prompt"] = prompt
     initial_state["task_id"] = task_id
 
+    page_cache = AsyncPageCache()
+
     config = _build_running_config(
         task_id=task_id,
         thread_id=thread_id,
         app_config=app_config,
         qdrant_client=qdrant_client,
+        page_cache=page_cache,
     )
 
     try:
@@ -108,6 +114,12 @@ async def _execute_single_task(
     except Exception as exc:
         ui_bridge.current_node = "error"
         return {**initial_state, "error": str(exc)}
+    finally:
+        # Register page cache for the presentation layer to harvest.
+        try:
+            ui_bridge.page_caches[task_id] = page_cache
+        except Exception:
+            pass
 
     ui_bridge.current_node = "completed"
 

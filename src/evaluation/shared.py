@@ -290,6 +290,7 @@ def make_partial_live_eval_target(
                     thread_id=thread_id,
                     app_config=app_config,
                     qdrant_client=qdrant_client,
+                    page_cache=None,
                 )
 
                 await pipeline.aupdate_state(config, initial_state, as_node=resolved_start_node)

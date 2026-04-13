@@ -22,6 +22,7 @@ from src.presentation.sanitization import (
     sanitize_notion_markdown,
 )
 from src.presentation.viewer import print_completed_state
+from src.utils.page_cache import CachedPage
 from src.utils.telemetry import (
     AFFECTED_IDS_PATH,
     LOCAL_AFFECTED_IDS_PATH,
@@ -178,7 +179,8 @@ class TestTelemetryWrapping:
     def test_wrap_adds_header_and_footer(self) -> None:
         code = "print('hello')"
         wrapped = wrap_code_with_telemetry(code)
-        assert "__system_affected_ids" in wrapped
+        assert "__system_read_ids" in wrapped
+        assert "__system_mutated_ids" in wrapped
         assert "__telemetry_request" in wrapped
         assert "/tmp/affected_ids.json" in wrapped
         assert code in wrapped
@@ -219,9 +221,9 @@ requests.get("https://api.notion.com/v1/pages/{page_id}")
 
         namespace: Dict[str, Any] = {}
         exec(wrapped, namespace)
-        first_ids = list(namespace.get("__system_affected_ids", set()))
+        first_ids = list(namespace.get("__system_read_ids", set()))
         exec(wrapped, namespace)
-        second_ids = list(namespace.get("__system_affected_ids", set()))
+        second_ids = list(namespace.get("__system_read_ids", set()))
 
         assert page_id in first_ids
         assert page_id in second_ids
@@ -249,7 +251,7 @@ requests.get("https://api.notion.com/v1/pages/{page_id}")
 class TestTelemetryExtraction:
     """Verify that telemetry correctly extracts IDs from various URL patterns."""
 
-    def _run_telemetry_code(self, urls_and_methods: list[tuple[str, str]]) -> list[str]:
+    def _run_telemetry_code(self, urls_and_methods: list[tuple[str, str]]) -> dict[str, list[str]]:
         """Execute the telemetry header + simulated requests and return captured IDs."""
         # Build test code that simulates requests to the given URLs
         lines = []
@@ -268,25 +270,27 @@ class TestTelemetryExtraction:
         # Execute in isolated namespace
         namespace: Dict[str, Any] = {}
         exec(full_code, namespace)
-        return list(namespace.get("__system_affected_ids", set()))
+        read_ids = list(namespace.get("__system_read_ids", set()))
+        mutated_ids = list(namespace.get("__system_mutated_ids", set()))
+        return {"read": read_ids, "mutated": mutated_ids}
 
     def test_extracts_page_id_from_patch(self) -> None:
         ids = self._run_telemetry_code([
             ("PATCH", "https://api.notion.com/v1/pages/ccbcb17d-cc44-829a-b707-019899e91df7"),
         ])
-        assert "ccbcb17d-cc44-829a-b707-019899e91df7" in ids
+        assert "ccbcb17d-cc44-829a-b707-019899e91df7" in ids["mutated"]
 
     def test_extracts_page_id_from_get(self) -> None:
         ids = self._run_telemetry_code([
             ("GET", "https://api.notion.com/v1/pages/aabbccdd-1122-3344-5566-778899aabbcc"),
         ])
-        assert "aabbccdd-1122-3344-5566-778899aabbcc" in ids
+        assert "aabbccdd-1122-3344-5566-778899aabbcc" in ids["read"]
 
     def test_extracts_from_blocks_endpoint(self) -> None:
         ids = self._run_telemetry_code([
             ("PATCH", "https://api.notion.com/v1/blocks/aabbccdd-1122-3344-5566-778899aabbcc/children"),
         ])
-        assert "aabbccdd-1122-3344-5566-778899aabbcc" in ids
+        assert "aabbccdd-1122-3344-5566-778899aabbcc" in ids["mutated"]
 
     def test_deduplicates_multiple_calls(self) -> None:
         page_id = "ccbcb17d-cc44-829a-b707-019899e91df7"
@@ -294,19 +298,21 @@ class TestTelemetryExtraction:
             ("GET", f"https://api.notion.com/v1/pages/{page_id}"),
             ("PATCH", f"https://api.notion.com/v1/pages/{page_id}"),
         ])
-        assert ids.count(page_id) == 1
+        assert ids["read"].count(page_id) == 1
+        assert ids["mutated"].count(page_id) == 1
 
     def test_ignores_non_notion_urls(self) -> None:
         ids = self._run_telemetry_code([
             ("GET", "https://example.com/v1/pages/ccbcb17d-cc44-829a-b707-019899e91df7"),
         ])
-        assert len(ids) == 0
+        assert len(ids["read"]) == 0
+        assert len(ids["mutated"]) == 0
 
     def test_extracts_unhyphenated_id(self) -> None:
         ids = self._run_telemetry_code([
             ("GET", "https://api.notion.com/v1/pages/ccbcb17dcc44829ab707019899e91df7"),
         ])
-        assert "ccbcb17dcc44829ab707019899e91df7" in ids
+        assert "ccbcb17dcc44829ab707019899e91df7" in ids["read"]
 
 
 # ===========================================================================
@@ -334,9 +340,9 @@ requests.get("https://api.notion.com/v1/pages/ccbcb17d-cc44-829a-b707-019899e91d
         exec(wrapped, {})
 
         assert output_file.exists(), "Telemetry footer did not write the JSON file"
-        ids = json.loads(output_file.read_text())
-        assert isinstance(ids, list)
-        assert "ccbcb17d-cc44-829a-b707-019899e91df7" in ids
+        payload = json.loads(output_file.read_text())
+        assert isinstance(payload, dict)
+        assert "ccbcb17d-cc44-829a-b707-019899e91df7" in payload.get("read", [])
 
 
 # ===========================================================================
@@ -418,6 +424,36 @@ class TestViewer:
 
     @patch("src.presentation.viewer.fetch_page_properties")
     @patch("src.presentation.viewer.fetch_page_markdown")
+    def test_prefetched_pages_skip_fetch(
+        self,
+        mock_md: Any,
+        mock_props: Any,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        mock_props.return_value = _load_page_properties()
+        mock_md.return_value = _load_page_markdown()
+
+        state = {
+            "terminal_status": "success",
+            "execution_output": "",
+            "affected_notion_ids": ["ccbcb17d-cc44-829a-b707-019899e91df7"],
+        }
+
+        prefetched = {
+            "any": CachedPage(
+                page_id="ccbcb17d-cc44-829a-b707-019899e91df7",
+                properties=_load_page_properties(),
+                markdown=_load_page_markdown(),
+            )
+        }
+        print_completed_state(state, prefetched=prefetched)
+        captured = capsys.readouterr().out
+        assert "Architecture Review" in captured
+        mock_props.assert_not_called()
+        mock_md.assert_not_called()
+
+    @patch("src.presentation.viewer.fetch_page_properties")
+    @patch("src.presentation.viewer.fetch_page_markdown")
     def test_fetch_failure_shows_error_panel(
         self,
         mock_md: Any,
@@ -493,11 +529,13 @@ print(f"Status: {{resp.status_code}}")
 
             # Read back the telemetry file
             file_bytes = sandbox.files.read(AFFECTED_IDS_PATH)
-            ids = json.loads(file_bytes)
+            payload = json.loads(file_bytes)
 
-            assert isinstance(ids, list)
-            assert page_id.lower().replace("-", "") in "".join(ids).replace("-", ""), (
-                f"Expected {page_id} in captured IDs but got: {ids}"
+            assert isinstance(payload, dict)
+            read_ids = payload.get("read", [])
+            assert isinstance(read_ids, list)
+            assert page_id.lower().replace("-", "") in "".join(read_ids).replace("-", ""), (
+                f"Expected {page_id} in captured IDs but got: {payload}"
             )
         finally:
             sandbox.kill()
