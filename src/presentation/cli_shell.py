@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import shlex
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Literal
 
@@ -134,3 +135,5 @@ async def get_animated_input(
         return await session.prompt_async(dynamic_prompt)
     finally:
         animator.cancel()
+        with suppress(asyncio.CancelledError):
+            await animator

@@ -121,10 +121,12 @@ class AsyncPageCache:
                     error=str(result),
                     source_id=raw_id,
                 )
+        self._tasks.clear()
         return out
 
     def cancel_all(self) -> None:
         for task in self._tasks.values():
             if not task.done():
                 task.cancel()
+        self._tasks.clear()
 

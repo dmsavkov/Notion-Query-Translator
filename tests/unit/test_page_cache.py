@@ -19,6 +19,7 @@ async def test_page_cache_dedup_enqueue_calls_fetch_once(monkeypatch: pytest.Mon
     out = await cache.gather_all()
     assert "id-1" in out
     assert fetch.await_count == 1
+    assert cache._tasks == {}
 
 
 @pytest.mark.unit
@@ -43,4 +44,5 @@ async def test_page_cache_force_refresh_replaces_task(monkeypatch: pytest.Monkey
     gate.set()
     out = await cache.gather_all()
     assert "id-1" in out
+    assert cache._tasks == {}
 

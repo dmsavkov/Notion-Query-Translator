@@ -10,7 +10,7 @@ Provides a clean, rich terminal UI with:
 import asyncio
 import logging
 import os
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, suppress
 from typing import Any
 
 import typer
@@ -49,6 +49,7 @@ STATUS_MAP = {
     "retrieve": "[bold cyan]Retrieving Notion API documentation...[/bold cyan]",
     "plan": "[bold cyan]Planning the implementation...[/bold cyan]",
     "codegen": "[bold yellow]Writing Python script for Notion API...[/bold yellow]",
+    "prepare_sandbox": "[bold magenta]Preparing the sandbox in parallel...[/bold magenta]",
     "execute_local": "[bold magenta]Executing code locally...[/bold magenta]",
     "execute_sandbox": "[bold magenta]Booting E2B sandbox and running code...[/bold magenta]",
     "egress_security": "[bold cyan]Checking output for token leaks...[/bold cyan]",
@@ -116,6 +117,8 @@ async def _run_with_spinner(
                 log_file.close()
         finally:
             poller_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await poller_task
 
     return result
 
@@ -141,6 +144,10 @@ async def _run_iteration_async(*, user_prompt: str, think: bool) -> dict[str, An
         except Exception:
             prefetched = None
     print_completed_state(task_result, prefetched=prefetched)
+    if page_cache is not None:
+        with suppress(Exception):
+            page_cache.cancel_all()
+            ui_bridge.page_caches.pop(task_id, None)
     return task_result
 
 
@@ -153,7 +160,7 @@ def _render_shell_startup(settings: ShellSettings) -> None:
     console.print(f"[dim]{format_shell_status(settings)}[/dim]\n")
 
 
-def interactive_shell(*, initial_think: bool = False) -> None:
+async def _interactive_shell_async(*, initial_think: bool = False) -> None:
     settings = ShellSettings(think=initial_think)
 
     _render_shell_startup(settings)
@@ -161,7 +168,7 @@ def interactive_shell(*, initial_think: bool = False) -> None:
     while True:
         session = create_prompt_session()
         try:
-            user_input = asyncio.run(get_animated_input(session))
+            user_input = await get_animated_input(session)
         except KeyboardInterrupt:
             console.print("[bold purple]Bye![/bold purple]")
             break
@@ -190,7 +197,7 @@ def interactive_shell(*, initial_think: bool = False) -> None:
 
         console.print(f"[bold]Prompt:[/bold] {dispatch.prompt}\n")
         try:
-            task_result = _run_iteration(user_prompt=dispatch.prompt, think=settings.think)
+            task_result = await _run_iteration_async(user_prompt=dispatch.prompt, think=settings.think)
         except KeyboardInterrupt:
             console.print("[yellow]Run interrupted. Back to prompt.[/yellow]\n")
             continue
@@ -202,6 +209,10 @@ def interactive_shell(*, initial_think: bool = False) -> None:
             console.print("[yellow]Run finished with errors. Ready for next prompt.[/yellow]\n")
         else:
             console.print("[dim]Ready for the next prompt.[/dim]\n")
+
+
+def interactive_shell(*, initial_think: bool = False) -> None:
+    asyncio.run(_interactive_shell_async(initial_think=initial_think))
 
 
 @app.command()
