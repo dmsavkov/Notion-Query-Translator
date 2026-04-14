@@ -28,13 +28,19 @@ JSON keys (in this order): reasoning, relevant_to_notion_scope, required_resourc
 </notion_scope>
 
 <guidance>
-Collect only titles that must already exist and be resolved before execution into 'required_resources' (List of strings).
 Do NOT include names for new objects that the request is creating (for example, "create page named X").
 Do NOT include Notion property names (for example, Status, Due date).
 If none need prior resolution, return [].
 Do not output dangerousness flags.
 Do not output n_steps.
 </guidance>
+
+<required_resources_rules>
+Collect only titles that must already exist and be resolved before execution into 'required_resources' (List of strings).
+Return the canonical Notion page title exactly as it exists in Notion, including its real spelling and capitalization.
+Use page-title clues from the user request even when the user writes in lowercase, uppercase, mixed case, with underscores, or with small spelling mistakes.
+If the request mentions multiple existing pages, include each page title once, in the order mentioned.
+</required_resources_rules>
 
 <few_shot_examples>
 <example>
@@ -46,11 +52,43 @@ Do not output n_steps.
 }}</output>
 </example>
 <example>
-<query>Find the page named 'Validation Node' and add a comment.</query>
+<query>Find the page named 'Quarterly Launch Plan' and add a comment.</query>
 <output>{{
     "reasoning": "Need to resolve a specific page by title before adding a comment.",
     "relevant_to_notion_scope": true,
-    "required_resources": ["Validation Node"]
+    "required_resources": ["Quarterly Launch Plan"]
+}}</output>
+</example>
+<example>
+<query>What does north star board currently contain?</query>
+<output>{{
+    "reasoning": "The request refers to an existing page title with lowercase spelling in the query.",
+    "relevant_to_notion_scope": true,
+    "required_resources": ["North Star Board"]
+}}</output>
+</example>
+<example>
+<query>Compare meridian plnng and apex overfllow priorities.</query>
+<output>{{
+    "reasoning": "The request refers to two existing pages with spelling mistakes that still need canonical titles.",
+    "relevant_to_notion_scope": true,
+    "required_resources": ["Meridian Planning", "Apex Overflow"]
+}}</output>
+</example>
+<example>
+<query>Relate blocked by new issue to DATA MAP and tell me their status.</query>
+<output>{{
+    "reasoning": "The request refers to existing pages with mixed case and underscore-style titles.",
+    "relevant_to_notion_scope": true,
+    "required_resources": ["Blocked_by_New_Issue", "Data Map"]
+}}</output>
+</example>
+<example>
+<query>Open quarz ledger and add a quick summary line.</query>
+<output>{{
+    "reasoning": "The request refers to an existing page title with a spelling error.",
+    "relevant_to_notion_scope": true,
+    "required_resources": ["Quartz Ledger"]
 }}</output>
 </example>
 <example>

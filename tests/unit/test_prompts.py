@@ -1,3 +1,4 @@
+from src.guards import build_general_check_prompt
 from src.models.prompts import build_generate_code_prompt
 
 
@@ -37,3 +38,15 @@ def test_generate_code_prompt_accepts_custom_render_cap_text() -> None:
     )
 
     assert "If more than 9 IDs are relevant" in prompt
+
+
+def test_general_check_prompt_emphasizes_canonical_titles_and_case_variants() -> None:
+    prompt = build_general_check_prompt("demo")
+
+    assert "<required_resources_rules>" in prompt
+    assert "canonical Notion page title" in prompt
+    assert "lowercase, uppercase, mixed case, with underscores, or with small spelling mistakes" in prompt
+    assert "What does north star board currently contain?" in prompt
+    assert "meridian plnng and apex overfllow priorities" in prompt
+    assert "Relate blocked by new issue to DATA MAP" in prompt
+    assert "Open quarz ledger and add a quick summary line." in prompt
