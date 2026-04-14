@@ -70,6 +70,19 @@ def _normalize_title(value: Any) -> str:
 	return notion_requesting.normalize_title_for_match(value)
 
 
+def _normalize_title_list(value: Any) -> List[str]:
+	items = _normalize_required_resources(value)
+	normalized: List[str] = []
+	seen: set[str] = set()
+	for item in items:
+		title = _normalize_title(item)
+		if not title or title in seen:
+			continue
+		seen.add(title)
+		normalized.append(title)
+	return normalized
+
+
 def _normalize_search_observations(value: Any) -> Dict[str, List[Dict[str, str]]]:
 	if not isinstance(value, dict):
 		return {}
@@ -318,12 +331,16 @@ async def precheck_mention_count_evaluator(
 	outputs: Dict[str, Any],
 	reference_outputs: Dict[str, Any],
 ) -> Dict[str, Any]:
-	expected_count = len(_normalize_expected_titles(reference_outputs.get("required_resources")))
-	predicted_mentions = _normalize_required_resources(outputs.get("inferred_required_resources"))
+	expected_titles = _normalize_title_list(reference_outputs.get("required_resources"))
+	predicted_mentions = _normalize_title_list(outputs.get("inferred_required_resources"))
+	matched_titles = [title for title in expected_titles if title in set(predicted_mentions)]
 	predicted_count = len(predicted_mentions)
 	predicted_resolved_count = int(outputs.get("resolved_pages_count") or 0)
 
-	score = 1.0 if expected_count == predicted_count else 0.0
+	if not expected_titles:
+		score = 1.0 if predicted_count == 0 else 0.0
+	else:
+		score = len(matched_titles) / float(len(expected_titles))
 	task_id = str(outputs.get("task_id") or reference_outputs.get("task_id") or inputs.get("task_id") or "")
 	return {
 		"key": "precheck_mention_count_match",
@@ -331,9 +348,11 @@ async def precheck_mention_count_evaluator(
 		"comment": json.dumps(
 			{
 				"task_id": task_id,
-				"expected_referenced_pages_count": expected_count,
+				"expected_referenced_pages_count": len(expected_titles),
 				"predicted_mentioned_pages_count": predicted_count,
 				"predicted_mentioned_pages": predicted_mentions,
+				"matched_pages": matched_titles,
+				"matched_pages_count": len(matched_titles),
 				"predicted_resolved_pages_count": predicted_resolved_count,
 			}
 		),

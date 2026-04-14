@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import warnings
 from typing import Any, Dict, Optional
 
@@ -25,7 +26,7 @@ SETTINGS = StandardEvaluationSettings(
 
 def _normalize_required_resources(value: Any) -> list[str]:
     if isinstance(value, str):
-        cleaned = value.strip()
+        cleaned = re.sub(r"\s+", " ", value.strip().lower().replace("_", " "))
         return [cleaned] if cleaned else []
 
     if not isinstance(value, (list, tuple, set)):
@@ -34,7 +35,7 @@ def _normalize_required_resources(value: Any) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
     for item in value:
-        cleaned = str(item).strip()
+        cleaned = re.sub(r"\s+", " ", str(item).strip().lower().replace("_", " "))
         if not cleaned or cleaned in seen:
             continue
         seen.add(cleaned)

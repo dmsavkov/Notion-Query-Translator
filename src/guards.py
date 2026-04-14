@@ -1,6 +1,7 @@
 """Input guardrail helpers for first-entry request checks."""
 
 import os
+import re
 from typing import Any, Dict, List, Optional, cast
 
 import openai
@@ -10,6 +11,25 @@ from .utils.openai_utils import create_async_openai_client
 
 
 NOTION_SCOPE = "notion, project management, projects, pages, databases, data sources, blocks, people"
+
+
+def _normalize_required_resource_titles(raw_required: Any) -> List[str]:
+    if isinstance(raw_required, str):
+        candidates = [raw_required]
+    elif isinstance(raw_required, (list, tuple, set)):
+        candidates = list(raw_required)
+    else:
+        return []
+
+    normalized: List[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        title = re.sub(r"\s+", " ", str(item or "").strip().lower().replace("_", " ")).strip()
+        if not title or title in seen:
+            continue
+        seen.add(title)
+        normalized.append(title)
+    return normalized
 
 
 def build_general_check_prompt(query: str) -> str:
@@ -136,7 +156,7 @@ async def run_general_check(
     return {
         "reasoning": parsed["reasoning"],
         "relevant_to_notion_scope": parsed["relevant_to_notion_scope"],
-        "required_resources": parsed.get("required_resources", []),
+        "required_resources": _normalize_required_resource_titles(parsed.get("required_resources", [])),
     }
 
 

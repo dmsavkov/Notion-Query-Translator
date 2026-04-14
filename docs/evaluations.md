@@ -27,7 +27,7 @@ Flow:
 1. The target builds node state with [build_node_eval_state](../src/evaluation/utils.py).
 2. It calls [precheck_general_node](../src/nodes.py).
 3. The guardrail prompt in [src/guards.py](../src/guards.py) asks the model to return strict JSON with `reasoning`, `relevant_to_notion_scope`, and `required_resources`.
-4. The target normalizes the returned `required_resources` list.
+4. The real guard normalizes `required_resources` to lowercase page titles with underscores converted to spaces.
 5. Evaluators compare the predicted values with the reference outputs from the dataset.
 
 Metrics:
@@ -58,12 +58,12 @@ Metrics:
 
 - `top1_precision`: for each expected title from `reference_outputs.required_resources`, the metric checks whether any query returned that title as the first search result after title normalization.
 - `top3_recall`: the same check, but across the first three search results.
-- `precheck_mention_count_match`: compares the number of expected titles with the number of pages mentioned by the general precheck. The resolved page count is still included in the comment for debugging, but it does not affect the score.
+- `precheck_mention_count_match`: compares the reference titles against the pages mentioned by the general precheck after title normalization. Each matched page contributes one point and the score is `matched / expected`; the resolved page count is still included in the comment for debugging, but it does not affect the score.
 
 Important caveats:
 
 - `required_resources` is intentionally not duplicated in the title-search input state. The expected titles live in `reference_outputs`, while the live state is derived from the precheck step.
-- Title matching is normalized with lowercase, underscore-to-space conversion, and whitespace collapsing. The evaluation does not depend on exact capitalization.
+- Title matching is normalized with lowercase, underscore-to-space conversion, and whitespace collapsing. The evaluation does not depend on exact capitalization, and the precheck itself now emits normalized titles in that form.
 - The search is still a fuzzy Notion search, not an exact title lookup. Ambiguity handling depends on the resolver and any configured disambiguator.
 - The names `top1_precision` and `top3_recall` are descriptive, but they are really per-reference-title hit-rate checks, not full corpus-level retrieval metrics.
 

@@ -112,16 +112,16 @@ async def test_precheck_mention_count_evaluator_uses_precheck_mentions_not_resol
         inputs={"task_id": "ts_metric"},
         outputs={
             "task_id": "ts_metric",
-            "inferred_required_resources": ["Alpha", "Beta", "Gamma"],
-            "mentioned_pages_count": 3,
+            "inferred_required_resources": ["Alpha", "Beta"],
+            "mentioned_pages_count": 2,
             "resolved_pages_count": 1,
         },
         reference_outputs={
             "task_id": "ts_metric",
-            "required_resources": ["Alpha", "Beta", "Gamma"],
+            "required_resources": ["alpha", "gamma"],
         },
     )
 
     assert result["key"] == "precheck_mention_count_match"
-    assert result["score"] == 1.0
+    assert result["score"] == 0.5
     assert '"predicted_resolved_pages_count": 1' in result["comment"]
