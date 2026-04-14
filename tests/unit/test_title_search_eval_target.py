@@ -123,5 +123,5 @@ async def test_precheck_mention_count_evaluator_uses_precheck_mentions_not_resol
     )
 
     assert result["key"] == "precheck_mention_count_match"
-    assert result["score"] == 0.5
+    assert result["score"] == 1.0
     assert '"predicted_resolved_pages_count": 1' in result["comment"]

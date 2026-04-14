@@ -333,14 +333,10 @@ async def precheck_mention_count_evaluator(
 ) -> Dict[str, Any]:
 	expected_titles = _normalize_title_list(reference_outputs.get("required_resources"))
 	predicted_mentions = _normalize_title_list(outputs.get("inferred_required_resources"))
-	matched_titles = [title for title in expected_titles if title in set(predicted_mentions)]
 	predicted_count = len(predicted_mentions)
 	predicted_resolved_count = int(outputs.get("resolved_pages_count") or 0)
 
-	if not expected_titles:
-		score = 1.0 if predicted_count == 0 else 0.0
-	else:
-		score = len(matched_titles) / float(len(expected_titles))
+	score = 1.0 if predicted_count == len(expected_titles) else 0.0
 	task_id = str(outputs.get("task_id") or reference_outputs.get("task_id") or inputs.get("task_id") or "")
 	return {
 		"key": "precheck_mention_count_match",
@@ -351,8 +347,6 @@ async def precheck_mention_count_evaluator(
 				"expected_referenced_pages_count": len(expected_titles),
 				"predicted_mentioned_pages_count": predicted_count,
 				"predicted_mentioned_pages": predicted_mentions,
-				"matched_pages": matched_titles,
-				"matched_pages_count": len(matched_titles),
 				"predicted_resolved_pages_count": predicted_resolved_count,
 			}
 		),
