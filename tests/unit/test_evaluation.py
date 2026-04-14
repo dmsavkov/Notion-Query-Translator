@@ -166,7 +166,7 @@ def test_load_eval_tasks_or_raise_returns_loaded_tasks():
 @pytest.mark.unit
 def test_ensure_dataset_creates_missing_examples_only():
     dataset = SimpleNamespace(id="ds_1", name="Dataset v4.")
-    existing_example = SimpleNamespace(inputs={"task_id": "task_1"})
+    existing_example = SimpleNamespace(id="ex_existing", inputs={"task_id": "task_1", "query": "already there"})
 
     client = MagicMock()
     client.list_datasets.return_value = [dataset]
@@ -181,6 +181,7 @@ def test_ensure_dataset_creates_missing_examples_only():
 
     assert out_dataset is dataset
     client.create_dataset.assert_not_called()
+    client.update_example.assert_not_called()
     client.create_example.assert_called_once()
     kwargs = client.create_example.call_args.kwargs
     assert kwargs["dataset_id"] == "ds_1"
@@ -215,6 +216,41 @@ def test_ensure_dataset_flattens_input_state_into_langsmith_inputs():
         "task_id": "task_nested",
         "user_prompt": "nested prompt",
         "custom_flag": True,
+    }
+
+
+@pytest.mark.unit
+def test_ensure_dataset_updates_existing_examples_when_inputs_change():
+    dataset = SimpleNamespace(id="ds_3", name="Dataset sync")
+    existing_example = SimpleNamespace(
+        id="ex_1",
+        inputs={"task_id": "task_sync", "user_prompt": "old prompt"},
+    )
+
+    client = MagicMock()
+    client.list_datasets.return_value = [dataset]
+    client.list_examples.return_value = [existing_example]
+
+    task_specs = {
+        "task_sync": {
+            "input_state": {
+                "user_prompt": "new prompt",
+                "required_resources": ["AI Research"],
+            },
+        }
+    }
+
+    out_dataset = ensure_dataset(client, "Dataset sync", task_specs)
+
+    assert out_dataset is dataset
+    client.create_example.assert_not_called()
+    client.update_example.assert_called_once()
+    call_args = client.update_example.call_args
+    assert call_args.args[0] == "ex_1"
+    assert call_args.kwargs["inputs"] == {
+        "task_id": "task_sync",
+        "user_prompt": "new prompt",
+        "required_resources": ["AI Research"],
     }
 
 
@@ -264,6 +300,24 @@ def test_extract_execution_error_handles_dict_and_object_shapes():
 
 
 @pytest.mark.unit
+def test_ensure_dataset_fails_fast_when_langsmith_key_missing(monkeypatch: pytest.MonkeyPatch):
+    dataset = SimpleNamespace(id="ds_auth", name="Dataset auth")
+
+    client = MagicMock()
+    client.list_datasets.return_value = [dataset]
+    client.list_examples.return_value = []
+
+    monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
+    monkeypatch.delenv("LANGCHAIN_API_KEY", raising=False)
+
+    with patch("src.evaluation.utils.load_runtime_environment") as mock_load_env:
+        with pytest.raises(EnvironmentError, match="LangSmith auth preflight failed"):
+            ensure_dataset(client, "Dataset auth", {"task_1": {"query": "q"}})
+
+    mock_load_env.assert_called_once_with(include_sandbox=True)
+
+
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_evaluation_orchestration_raises_on_execution_errors():
     settings = StandardEvaluationSettings(
@@ -278,6 +332,7 @@ async def test_evaluation_orchestration_raises_on_execution_errors():
 
     rows = [{"run": {"name": "task-x", "outputs": {"error": "boom"}}}]
     client = MagicMock()
+    client.list_datasets.return_value = []
 
     with patch("src.evaluation.shared.load_eval_tasks_or_raise", return_value={"task-x": {"query": "q"}}), patch(
         "src.evaluation.shared.ensure_dataset"
@@ -311,6 +366,7 @@ async def test_evaluation_orchestration_runs_provisioning_and_error_analysis_whe
         return {}
 
     client = MagicMock()
+    client.list_datasets.return_value = []
 
     with patch("src.evaluation.shared.load_eval_tasks_or_raise", return_value={"task-1": {"query": "q"}}), patch(
         "src.evaluation.shared.ensure_dataset"

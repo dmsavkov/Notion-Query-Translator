@@ -6,12 +6,13 @@ from typing import Any, Dict, List, Literal, Optional, cast
 import pytest
 from pydantic import ConfigDict
 
-from src.all_functionality import build_general_info
+from src.all_functionality import build_general_info, load_eval_tasks
 from src.evaluation.evaluator import Evaluator
 from src.evaluation.shared import evaluation_orchestration, make_partial_live_eval_target
 from src.evaluation.utils import StandardEvaluationSettings, _synthesize_eval_context, build_node_eval_state
 from src.models.hardcoded_contexts import get_hardcoded_context
 from src.models.schema import AgentParams, PipelineParams, RagBuildConfig, StaticParams
+from src.presentation import notion_requesting
 
 
 DEFAULT_CONTEXT_NAME = "database_schema_report_comprehensive__notion_api_top25_20220628"
@@ -67,6 +68,91 @@ def _error_target_output(task_id: str, error: str) -> Dict[str, Any]:
 	}
 
 
+def _normalize_required_resources(value: Any) -> List[str]:
+	if isinstance(value, str):
+		cleaned = value.strip()
+		return [cleaned] if cleaned else []
+
+	if not isinstance(value, (list, tuple, set)):
+		return []
+
+	normalized: List[str] = []
+	seen: set[str] = set()
+	for item in value:
+		cleaned = str(item).strip()
+		if not cleaned or cleaned in seen:
+			continue
+		seen.add(cleaned)
+		normalized.append(cleaned)
+	return normalized
+
+
+def _normalize_resource_map(value: Any) -> Dict[str, str]:
+	if not isinstance(value, dict):
+		return {}
+
+	normalized: Dict[str, str] = {}
+	for raw_title, raw_id in value.items():
+		title = str(raw_title).strip()
+		page_id = str(raw_id).strip()
+		if title and page_id:
+			normalized[title] = page_id
+	return normalized
+
+
+def _required_resources_from_task_specs(task_id: str, task_specs: Dict[str, Dict[str, Any]]) -> List[str]:
+	task_spec = task_specs.get(task_id)
+	if not isinstance(task_spec, dict):
+		return []
+
+	input_state = task_spec.get("input_state")
+	if isinstance(input_state, dict):
+		input_titles = _normalize_required_resources(input_state.get("required_resources"))
+		if input_titles:
+			return input_titles
+
+	reference_outputs = task_spec.get("reference_outputs")
+	if isinstance(reference_outputs, dict):
+		reference_titles = _normalize_required_resources(reference_outputs.get("required_resources"))
+		if reference_titles:
+			return reference_titles
+
+	return []
+
+
+async def _hydrate_resource_map_for_codegen(
+	*,
+	task_id: str,
+	state: Dict[str, Any],
+	task_specs: Dict[str, Dict[str, Any]],
+) -> tuple[List[str], Dict[str, str]]:
+	required_titles = _normalize_required_resources(state.get("required_resources"))
+	if not required_titles:
+		required_titles = _required_resources_from_task_specs(task_id, task_specs)
+
+	resource_map = _normalize_resource_map(state.get("resource_map"))
+	if not required_titles:
+		return [], resource_map
+
+	for title in required_titles:
+		if title in resource_map:
+			continue
+
+		matches = await asyncio.to_thread(notion_requesting.search_pages_by_title, title=title, limit=10)
+		if not matches:
+			raise ValueError(f"Title-to-ID hydration failed: no Notion page matches '{title}'.")
+
+		selected_id = notion_requesting.pick_exact_or_first_match_id(title, matches)
+		if not selected_id:
+			raise ValueError(f"Title-to-ID hydration failed: no valid page id found for '{title}'.")
+
+		# Force a direct GET call to validate the resolved identifier.
+		await asyncio.to_thread(notion_requesting.fetch_page_properties, selected_id)
+		resource_map[title] = selected_id
+
+	return required_titles, resource_map
+
+
 
 def _load_static_context(context_name: str) -> str:
 	try:
@@ -79,8 +165,15 @@ def _load_static_context(context_name: str) -> str:
 		raise
 
 
-def _prepare_codegen_inputs(inputs: Dict[str, Any], settings: CodeGenerationEvaluationSettings) -> Dict[str, Any]:
+async def _prepare_codegen_inputs(
+	inputs: Dict[str, Any],
+	settings: CodeGenerationEvaluationSettings,
+	*,
+	task_specs: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+	task_specs = task_specs or {}
 	state = build_node_eval_state(inputs)
+	task_id = str(state.get("task_id") or inputs.get("task_id") or "").strip()
 	user_prompt = str(state.get("user_prompt") or "").strip()
 
 	if not user_prompt:
@@ -89,6 +182,12 @@ def _prepare_codegen_inputs(inputs: Dict[str, Any], settings: CodeGenerationEval
 	static_context_name = str(state.get("static_context_name") or settings.static_context_name or DEFAULT_CONTEXT_NAME).strip()
 	if not static_context_name:
 		raise ValueError("Missing static_context_name in eval sample input_state.")
+
+	required_titles, hydrated_resource_map = await _hydrate_resource_map_for_codegen(
+		task_id=task_id,
+		state=state,
+		task_specs=task_specs,
+	)
 
 	retrieval_context = str(state.get("retrieval_context") or "").strip() or _load_static_context(static_context_name)
 	request_plan = ""
@@ -103,13 +202,20 @@ def _prepare_codegen_inputs(inputs: Dict[str, Any], settings: CodeGenerationEval
 	input_state = dict(cast(Dict[str, Any], original_input_state))
 	input_state.update(
 		{
+			"task_id": task_id,
 			"user_prompt": user_prompt,
 			"static_context_name": static_context_name,
+			"required_resources": required_titles,
+			"resource_map": hydrated_resource_map,
 			"retrieval_context": retrieval_context,
 			"request_plan": request_plan,
 			"general_info": general_info,
 		}
 	)
+	if required_titles:
+		meta = input_state.get("meta") if isinstance(input_state.get("meta"), dict) else {}
+		meta["required_resources"] = required_titles
+		input_state["meta"] = meta
 
 	prepared = dict(inputs)
 	prepared["input_state"] = input_state
@@ -117,6 +223,7 @@ def _prepare_codegen_inputs(inputs: Dict[str, Any], settings: CodeGenerationEval
 
 
 def make_codegen_reflect_target(settings: CodeGenerationEvaluationSettings):
+	task_specs = load_eval_tasks(settings.evals_dir, case_type=settings.evals_case_type)
 	static_params = StaticParams(
 		case_type="complex",
 		context_used="dynamic",
@@ -142,7 +249,11 @@ def make_codegen_reflect_target(settings: CodeGenerationEvaluationSettings):
 	async def target(inputs: Dict[str, Any]) -> Dict[str, Any]:
 		task_id = str(inputs.get("task_id") or "").strip()
 		try:
-			prepared_inputs = _prepare_codegen_inputs(inputs, settings)
+			prepared_inputs = await _prepare_codegen_inputs(
+				inputs,
+				settings,
+				task_specs=task_specs,
+			)
 		except Exception as exc:
 			warnings.warn(
 				f"Codegen eval input preparation failed for task_id='{task_id}': {exc}",

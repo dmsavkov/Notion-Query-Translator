@@ -5,6 +5,7 @@ authenticated via the NOTION_TOKEN environment variable.
 """
 
 import os
+import re
 from typing import Any, Dict, Optional
 
 import requests
@@ -14,6 +15,47 @@ from requests.exceptions import HTTPError
 NOTION_API_BASE = "https://api.notion.com/v1"
 NOTION_VERSION = os.getenv("NOTION_VERSION", "2022-06-28")
 REQUEST_TIMEOUT = 30
+
+
+def normalize_title_for_match(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = text.replace("_", " ")
+    return re.sub(r"\s+", " ", text)
+
+
+def extract_result_title(result: Dict[str, Any]) -> str:
+    props = result.get("properties")
+    if isinstance(props, dict):
+        for prop_value in props.values():
+            if not isinstance(prop_value, dict) or prop_value.get("type") != "title":
+                continue
+            title_items = prop_value.get("title")
+            if not isinstance(title_items, list):
+                continue
+            text = "".join(str(item.get("plain_text", "")) for item in title_items if isinstance(item, dict)).strip()
+            if text:
+                return text
+
+    if isinstance(result.get("title"), str) and str(result.get("title")).strip():
+        return str(result.get("title")).strip()
+
+    return "Untitled"
+
+
+def pick_exact_or_first_match_id(title: str, matches: list[Dict[str, Any]]) -> str:
+    normalized_title = normalize_title_for_match(title)
+    first_valid_id = ""
+    for item in matches:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("id") or "").strip()
+        if not item_id:
+            continue
+        if not first_valid_id:
+            first_valid_id = item_id
+        if normalize_title_for_match(extract_result_title(item)) == normalized_title:
+            return item_id
+    return first_valid_id
 
 
 def _notion_headers() -> Dict[str, str]:

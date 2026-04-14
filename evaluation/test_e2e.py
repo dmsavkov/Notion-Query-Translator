@@ -213,7 +213,7 @@ def _build_evaluators(core_evaluator: Evaluator, settings: E2EEvaluationSettings
 async def run_e2e_evaluation(settings: Optional[E2EEvaluationSettings] = None) -> Dict[str, Any]:
     final_settings = settings or SETTINGS
     static_params = StaticParams(case_type=cast(Any, final_settings.evals_case_type))
-    pipeline_params = PipelineParams(minimal=False, enable_page_caching=False)
+    pipeline_params = PipelineParams(minimal=False, reflector_used="self", enable_page_caching=False)
     agent_params = AgentParams()
     rag_build_config = RagBuildConfig()
     core_evaluator = Evaluator(default_judge_model=final_settings.judge_model_name)

@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, Optional
 
 from langsmith import Client
@@ -5,6 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ..all_functionality import load_eval_tasks
 from ..models.schema import generate_default_state
+from notion_query.environment import load_runtime_environment
 
 
 class StandardEvaluationSettings(BaseModel):
@@ -22,6 +24,12 @@ class StandardEvaluationSettings(BaseModel):
 
 
 EvaluationSettings = StandardEvaluationSettings
+
+
+def _ensure_langsmith_api_key() -> None:
+    load_runtime_environment(include_sandbox=True)
+    if not ((os.getenv("LANGSMITH_API_KEY") or "").strip() or (os.getenv("LANGCHAIN_API_KEY") or "").strip()):
+        raise EnvironmentError("LangSmith auth preflight failed: missing API key.")
 
 
 def extract_task_prompt(task_spec: Dict[str, Any]) -> str:
@@ -138,8 +146,10 @@ def load_eval_tasks_or_raise(settings: StandardEvaluationSettings) -> Dict[str, 
 def ensure_dataset(client: Client, dataset_name: str, task_specs: Dict[str, Dict[str, Any]]) -> Any:
     """
     Ensure a stable dataset exists and contains one example per task.
-    Existing examples are reused; only missing examples are created.
+    Existing examples are updated when input payloads drift.
     """
+    _ensure_langsmith_api_key()
+
     dataset = None
     for ds in client.list_datasets(dataset_name=dataset_name):
         if ds.name == dataset_name:
@@ -160,10 +170,8 @@ def ensure_dataset(client: Client, dataset_name: str, task_specs: Dict[str, Dict
             existing_by_task_id[task_id] = ex
 
     created = 0
+    updated = 0
     for task_id, task_spec in sorted(task_specs.items()):
-        if task_id in existing_by_task_id:
-            continue
-
         inputs = {
             "task_id": task_id,
         }
@@ -177,14 +185,37 @@ def ensure_dataset(client: Client, dataset_name: str, task_specs: Dict[str, Dict
         if prompt and not any(str(inputs.get(k) or "").strip() for k in ("query", "user_prompt", "task")):
             inputs["query"] = prompt
 
+        reference_outputs = build_reference_outputs(task_id, task_spec)
+
+        existing_example = existing_by_task_id.get(task_id)
+        if existing_example is not None:
+            existing_inputs = getattr(existing_example, "inputs", {}) or {}
+            if existing_inputs == inputs:
+                continue
+
+            example_id = str(getattr(existing_example, "id", "") or "").strip()
+            if not example_id:
+                raise ValueError(f"Dataset example for task_id='{task_id}' has no id; cannot update inputs.")
+
+            client.update_example(
+                example_id,
+                inputs=inputs,
+                outputs=reference_outputs,
+            )
+            updated += 1
+            continue
+
         client.create_example(
             inputs=inputs,
-            outputs=build_reference_outputs(task_id, task_spec),
+            outputs=reference_outputs,
             dataset_id=dataset.id,
         )
         created += 1
 
-    print(f"Dataset '{dataset_name}' ready. Existing: {len(existing_by_task_id)} | Created now: {created}")
+    print(
+        f"Dataset '{dataset_name}' ready. "
+        f"Existing: {len(existing_by_task_id)} | Updated now: {updated} | Created now: {created}"
+    )
     return dataset
 
 

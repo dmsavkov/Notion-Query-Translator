@@ -1,6 +1,5 @@
 import asyncio
 import json
-import re
 import warnings
 from typing import Any, Dict, List, Optional
 from unittest.mock import patch
@@ -68,29 +67,7 @@ def _normalize_expected_titles(value: Any) -> List[str]:
 
 
 def _normalize_title(value: Any) -> str:
-	text = str(value or "").strip().lower()
-	text = text.replace("_", " ")
-	text = re.sub(r"\s+", " ", text)
-	return text
-
-
-def _extract_result_title(result: Dict[str, Any]) -> str:
-	props = result.get("properties")
-	if isinstance(props, dict):
-		for prop_value in props.values():
-			if not isinstance(prop_value, dict) or prop_value.get("type") != "title":
-				continue
-			title_items = prop_value.get("title")
-			if not isinstance(title_items, list):
-				continue
-			text = "".join(str(item.get("plain_text", "")) for item in title_items if isinstance(item, dict)).strip()
-			if text:
-				return text
-
-	if isinstance(result.get("title"), str) and str(result.get("title")).strip():
-		return str(result.get("title")).strip()
-
-	return "Untitled"
+	return notion_requesting.normalize_title_for_match(value)
 
 
 def _normalize_search_observations(value: Any) -> Dict[str, List[Dict[str, str]]]:
@@ -173,7 +150,7 @@ def make_title_search_target(agent_params: Optional[AgentParams] = None):
 					item_id = str(item.get("id") or "").strip()
 					captured.append({
 						"id": item_id,
-						"title": _extract_result_title(item),
+						"title": notion_requesting.extract_result_title(item),
 					})
 				search_observations[str(title).strip()] = captured
 				return results
@@ -298,7 +275,7 @@ async def top3_recall_evaluator(
 	candidate_titles = _candidate_titles_by_query(outputs.get("search_observations"))
 
 	checked = 0
-	matched = 0
+	matched = 0 
 	details: List[Dict[str, Any]] = []
 
 	for expected_title in expected_titles:

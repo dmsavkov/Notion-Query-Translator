@@ -35,7 +35,7 @@ from .utils.telemetry import (
     wrap_code_with_telemetry,
 )
 from .presentation import ui_bridge
-from .presentation.notion_requesting import search_pages_by_title
+from .presentation.notion_requesting import extract_result_title, search_pages_by_title
 from langsmith import traceable
 
 
@@ -125,21 +125,6 @@ def _normalize_required_resources(raw_required: Any) -> List[str]:
     return normalized
 
 
-def _extract_result_title(result: Dict[str, Any]) -> str:
-    props = result.get("properties")
-    if isinstance(props, dict):
-        for prop_value in props.values():
-            if not isinstance(prop_value, dict) or prop_value.get("type") != "title":
-                continue
-            title_items = prop_value.get("title")
-            if not isinstance(title_items, list):
-                continue
-            text = "".join(str(item.get("plain_text", "")) for item in title_items if isinstance(item, dict)).strip()
-            if text:
-                return text
-    return "Untitled"
-
-
 @traceable(name="resolve_resources_node")
 async def resolve_resources_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
     meta = state.get("meta", {})
@@ -188,7 +173,7 @@ async def resolve_resources_node(state: Dict[str, Any], config: RunnableConfig) 
                 result_id = str(r.get("id", "")).strip()
                 if not result_id:
                     continue
-                options.append({"id": result_id, "title": _extract_result_title(r), "url": r.get("url")})
+                options.append({"id": result_id, "title": extract_result_title(r), "url": r.get("url")})
 
             if not options:
                 return {
@@ -220,7 +205,7 @@ async def resolve_resources_node(state: Dict[str, Any], config: RunnableConfig) 
                 result_id = str(r.get("id", "")).strip()
                 if not result_id:
                     continue
-                option_titles.append(f"{_extract_result_title(r)} ({result_id})")
+                option_titles.append(f"{extract_result_title(r)} ({result_id})")
             
             return {
                 "terminal_status": "resource_not_found",
