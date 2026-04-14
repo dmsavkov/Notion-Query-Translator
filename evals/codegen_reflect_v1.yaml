@@ -101,10 +101,10 @@
       - "Headers include Authorization bearer token and Notion-Version: 2022-06-28."
 
 - task_id: cg_reflect_append_inbox_checklist
-  task: "Append checklist items 'Read documentation', 'Draft code', and 'Test API' to the sandbox inbox page."
+  task: "Append checklist items 'Read documentation', 'Draft code', and 'Test API' to the inbox page."
   input_state:
-    user_prompt: "Append checklist items 'Read documentation', 'Draft code', and 'Test API' to the sandbox inbox page."
-    required_resources: ["Sandbox Inbox"]
+    user_prompt: "Append checklist items 'Read documentation', 'Draft code', and 'Test API' to the inbox page."
+    required_resources: []
     start_as_node: "plan"
     interrupt_before:
       - "cleanup_sandbox"
