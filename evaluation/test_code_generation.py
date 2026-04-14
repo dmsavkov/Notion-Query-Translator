@@ -36,7 +36,7 @@ SETTINGS = CodeGenerationEvaluationSettings(
 	dataset_name="codegen_reflect_golden_dataset_v1",
 	evals_case_type="codegen_reflect_v1.yaml",
 	eval_max_concurrency=1,
-	run_error_analysis_after_eval=True,
+	run_error_analysis_after_eval=False,
 	evals_dir="evals",
 	provision_infrastructure=True,
 )
