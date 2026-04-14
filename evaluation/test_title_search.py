@@ -18,11 +18,12 @@ from src.presentation import ui_bridge
 SETTINGS = StandardEvaluationSettings(
 	experiment_prefix="Title Search Node Evaluation",
 	dataset_name="title_search_golden_dataset_v1",
-	eval_max_concurrency=5,
+	eval_max_concurrency=1,
 	run_error_analysis_after_eval=False,
 	evals_dir="evals",
 	evals_case_type="title_search_v1.yaml",
 	provision_infrastructure=True,
+	post_dataset_sync_delay_seconds=30,
 )
 
 

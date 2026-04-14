@@ -19,6 +19,7 @@ class StandardEvaluationSettings(BaseModel):
     run_error_analysis_after_eval: bool = True
     evals_dir: str = "evals"
     provision_infrastructure: bool = True
+    post_dataset_sync_delay_seconds: float = 0.0
 
     model_config = ConfigDict(frozen=True)
 

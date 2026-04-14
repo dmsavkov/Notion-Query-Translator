@@ -12,6 +12,8 @@ The evaluation scripts live under [evaluation/](../evaluation) and are all built
 4. The target function returns a structured output dict.
 5. One or more evaluators compare that output against the dataset reference outputs.
 
+Some evaluations intentionally pause after `ensure_dataset(...)` and before `aevaluate(...)` by setting `post_dataset_sync_delay_seconds` on their settings. This is a practical workaround for Notion search/index propagation lag after a dataset sync, where immediately-started searches can return incomplete or empty results even though the same query works a little later.
+
 The orchestration layer is intentionally narrow: it raises on runtime execution errors, not on low metric scores. A bad prediction should show up as a score or comment, while an actual crash should fail the run.
 
 The important design decision is that the dataset is the canonical source of truth for prompts and reference outputs. The eval scripts should stay thin and should not re-encode task truth in code unless they are deliberately deriving it.
@@ -110,6 +112,7 @@ The evaluation stack follows a few recurring rules:
 - General precheck and title search are not measuring the same thing. One measures classification and resource inference; the other measures search and resolution quality.
 - Search ranking can vary, so small changes in Notion data can change top1/top3 scores without changing the underlying precheck quality.
 - Existing LangSmith examples can become stale when YAML changes. If a task gains or loses `required_resources`, the dataset should be refreshed through the normal orchestration path.
+- If an eval depends on fresh Notion search results, give the server time to settle after dataset sync. The shared orchestration supports `post_dataset_sync_delay_seconds` for that purpose, and the title-search and e2e evals use it.
 - The title-search target depends on a precheck model call, so tests should mock that node when they need deterministic behavior.
 
 ## Related Notes

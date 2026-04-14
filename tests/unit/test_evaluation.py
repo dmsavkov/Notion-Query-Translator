@@ -353,6 +353,45 @@ async def test_evaluation_orchestration_raises_on_execution_errors():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_evaluation_orchestration_waits_after_dataset_sync_when_configured():
+    settings = StandardEvaluationSettings(
+        experiment_prefix="unit-test-eval",
+        evals_case_type="simple",
+        run_error_analysis_after_eval=False,
+        provision_infrastructure=False,
+        post_dataset_sync_delay_seconds=30,
+    )
+
+    async def target(_inputs):
+        return {}
+
+    client = MagicMock()
+    client.list_datasets.return_value = []
+
+    with patch("src.evaluation.shared.load_eval_tasks_or_raise", return_value={"task-x": {"query": "q"}}), patch(
+        "src.evaluation.shared.ensure_dataset"
+    ) as mock_ensure, patch(
+        "src.evaluation.shared.asyncio.sleep",
+        new_callable=AsyncMock,
+        return_value=None,
+    ) as mock_sleep, patch(
+        "src.evaluation.shared.openai_client_session",
+        side_effect=_noop_openai_client_session,
+    ), patch("src.evaluation.shared.aevaluate", new_callable=AsyncMock, return_value=_AsyncIterator([])):
+        result = await evaluation_orchestration(
+            settings=settings,
+            target=target,
+            evaluators=[],
+            client=client,
+        )
+
+    assert result == {"failed_executions": [], "error_analysis_result": None}
+    mock_ensure.assert_called_once_with(client, settings.dataset_name, {"task-x": {"query": "q"}})
+    mock_sleep.assert_awaited_once_with(30.0)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_evaluation_orchestration_runs_provisioning_and_error_analysis_when_enabled():
     settings = StandardEvaluationSettings(
         experiment_prefix="unit-test-eval",

@@ -121,6 +121,10 @@ async def evaluation_orchestration(
 
     ensure_dataset(eval_client, settings.dataset_name, task_specs)
 
+    post_dataset_sync_delay_seconds = float(getattr(settings, "post_dataset_sync_delay_seconds", 0.0) or 0.0)
+    if post_dataset_sync_delay_seconds > 0:
+        await asyncio.sleep(post_dataset_sync_delay_seconds)
+
     print(f"\n[Executing Eval] Dataset: {settings.dataset_name} | Prefix: {settings.experiment_prefix}")
 
     failed_executions: List[Dict[str, str]] = []

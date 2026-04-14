@@ -28,6 +28,7 @@ SETTINGS = E2EEvaluationSettings(
     run_error_analysis_after_eval=True,
     evals_dir="evals",
     provision_infrastructure=True,
+    post_dataset_sync_delay_seconds=30,
 )
 
 
