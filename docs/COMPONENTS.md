@@ -1,103 +1,228 @@
-# Implementation Notes
+# Components
 
-This document explains a few internal features that are easy to miss when reading the app from the outside.
+This document explains crucial components, why they exist, and the main tradeoffs behind each one.
 
-## Page Caching
+## 1) UI Bridge
 
-The app keeps a small in-memory cache of Notion pages during a single run. The cache lives in [src/utils/page_cache.py](../src/utils/page_cache.py) and is injected through `RunnableConfig.configurable`.
+Source: [src/presentation/ui_bridge.py](../src/presentation/ui_bridge.py)
 
-What it does:
+Purpose:
 
-- When the graph resolves a page or block ID, it can start fetching the page properties and markdown in the background.
-- The cache deduplicates requests, so the same page is not fetched twice in the same turn.
-- The CLI harvests the prefetched pages after execution and passes them into the viewer, so the final display can reuse already-fetched data.
+- Hold small shared runtime signals for the CLI and graph streaming loop.
+- Keep UI state outside core graph state.
 
-Why it exists:
+Key fields:
 
-- It hides some of the latency from the user by overlapping fetch work with the rest of the pipeline.
-- It reduces duplicate Notion API calls when multiple parts of the pipeline need the same page.
-- It keeps the UI responsive without moving the actual execution logic into the presentation layer.
+- `current_node` for live progress display.
+- `trial_num` for retry progress.
+- `disambiguator` callback for interactive title resolution.
+- `page_caches` for task-scoped cache handoff.
 
-Important detail:
+Tradeoff:
 
-- The cache is intentionally not stored in LangGraph state because it contains asyncio tasks and is not serializable.
-- It is a turn-scoped helper, not a long-term application cache.
+- This is global process state, which is simple and fast for a CLI process, but should be replaced by stronger isolation if moving to multi-tenant server runtime.
 
-## Async Client Closing
+## 2) Async Page Cache
 
-The OpenAI-compatible async client is created inside a request-scoped context manager in [src/utils/openai_utils.py](../src/utils/openai_utils.py).
+Source: [src/utils/page_cache.py](../src/utils/page_cache.py)
 
-What it does:
+Purpose:
 
-- `openai_client_session()` creates the async client at the start of a pipeline run.
-- The client is stored in a context variable so lower-level helpers like `async_chat_wrapper()` can retrieve it without threading the client through every function.
-- When the run finishes, the context manager resets the context variable and explicitly closes the client.
+- Overlap fetch latency with ongoing graph execution.
+- Deduplicate page fetches in a single run.
 
-Why it exists:
+Design:
 
-- The CLI can execute multiple prompts in the same process, so clients must not leak across turns.
-- Explicit closing prevents stale sockets and shutdown errors when the event loop is torn down.
-- It keeps the OpenAI lifecycle aligned with the pipeline lifecycle instead of relying on module globals.
+- Cache stores asyncio tasks keyed by normalized IDs.
+- Prefetch can be triggered after resource resolution and execution.
+- Supports refresh for mutated pages.
 
-Practical consequence:
+Tradeoff:
 
-- Each run gets a fresh client context.
-- If the client is not closed, the next CLI turn can hit `Event loop is closed` during teardown.
+- Not serializable by design, so it stays out of graph state and is injected via runnable config.
 
-## Telemetry Patching
+## 3) Telemetry Wrapper
 
-Generated code is wrapped with a lightweight telemetry shim in [src/utils/telemetry.py](../src/utils/telemetry.py).
+Source: [src/utils/telemetry.py](../src/utils/telemetry.py)
 
-What it does:
+Purpose:
 
-- It monkey-patches `requests.Session.request` inside the generated code before execution starts.
-- The patch watches requests to Notion page and block endpoints.
-- It records page IDs that were read and page IDs that were mutated.
-- After execution, it writes those IDs to a JSON file so the host app can read them back.
+- Track which Notion pages were read or mutated by generated code.
 
-Why it exists:
+Design:
 
-- The generated script often does not print a clean summary of which pages it touched.
-- Telemetry gives the app a reliable post-run signal for rendering affected pages in the viewer.
-- Separating `read` and `mutated` IDs makes it possible to explain both what was inspected and what was changed.
+- Injects a request interceptor into generated code before execution.
+- Extracts IDs from page/block endpoint traffic.
+- Injects `RESOURCE_MAP` directly into code scope.
+- Supports fallback file-based affected-ID retrieval.
 
-Why it needs care:
+Tradeoff:
 
-- The sandbox can reuse a Python interpreter, so the patch must be re-entrant.
-- The current wrapper preserves the original request callable on the patched function so later runs do not recurse into an already-wrapped request method.
+- Monkey-patching is pragmatic but requires careful re-entrancy handling in reused interpreters.
 
-## Title Extraction
+## 4) Environment Layering
 
-The app uses title extraction in two places: disambiguation and rendering.
+Sources:
 
-Disambiguation:
+- [notion_query/environment.py](../notion_query/environment.py)
+- [src/evaluation/sandbox.py](../src/evaluation/sandbox.py)
 
-- In [src/nodes.py](../src/nodes.py), `_extract_result_title()` reads the title property from Notion search results.
-- It is used when multiple pages match the same user-entered title and the CLI needs to show human-friendly choices.
+Purpose:
 
-Rendering:
+- Separate stable secrets from ephemeral evaluation IDs.
 
-- In [src/presentation/viewer.py](../src/presentation/viewer.py), `_extract_page_title()` tries common property names such as `Name`, `Title`, `title`, and `name`.
-- If none of those are present, it falls back to a short `Page <id>` label.
+Design:
 
-Why it exists:
+- `.env` for stable credentials/config.
+- `.env.sandbox` for generated test IDs and short-lived sandbox artifacts.
+- Runtime can load both with sandbox values overriding overlaps.
 
-- Notion search results and page objects do not always share the same schema shape.
-- Humans need readable labels during disambiguation and when the final page view is rendered.
-- The fallback keeps the UI usable even when a page has an unusual schema or no obvious title field.
+Tradeoff:
 
-What it is not:
+- Slightly more setup complexity in exchange for safer evaluation operations and fewer accidental edits of base secrets.
 
-- It is not a canonical schema resolver.
-- It is a best-effort UI heuristic so the app can present useful names without failing when title fields vary.
+## 5) Precheck Guards
 
-## Output Fields You Will See
+Sources:
 
-The application currently surfaces these user-visible fields most often:
+- [src/guards.py](../src/guards.py)
+- [src/nodes.py](../src/nodes.py)
 
-- `execution_output`: main text shown for success or failure output.
-- `feedback`: extra explanation for failed executions and reflection loops.
-- `verdict`: structured evaluation or reflection result.
-- `affected_notion_ids`: the pages the telemetry layer says were touched.
+Purpose:
 
-There is no separate `message_to_user` field in the current state schema.
+- Stop unsafe/out-of-scope prompts early.
+- Extract required resource titles before code generation.
+
+Design:
+
+- General guard returns strict JSON: reasoning, scope flag, required resources.
+- Security guard uses Llama Guard result.
+- Pipeline joins both checks before continuing.
+
+Tradeoff:
+
+- Additional model calls add latency but significantly improve reliability and safety.
+
+## 6) Resource Resolution and Disambiguation
+
+Source: [src/nodes.py](../src/nodes.py)
+
+Purpose:
+
+- Resolve user-mentioned page titles into concrete Notion IDs.
+
+Design:
+
+- Searches Notion by title for each required resource.
+- Uses interactive disambiguation callback when multiple matches exist.
+- Fails explicitly when no disambiguator is available in non-interactive runs.
+
+Tradeoff:
+
+- Extra pre-execution API calls reduce downstream code hallucination and bad ID usage.
+
+## 7) Sandbox Lifecycle
+
+Sources:
+
+- [src/nodes.py](../src/nodes.py)
+- [src/utils/execution_utils.py](../src/utils/execution_utils.py)
+
+Purpose:
+
+- Execute generated code in isolated runtime by default.
+
+Design:
+
+- Prepare/connect sandbox, execute with timeout, then cleanup.
+- Egress policy allows only `api.notion.com`.
+- Sends only `NOTION_*` env values to sandbox.
+
+Tradeoff:
+
+- Slight startup overhead for sandbox setup, but improved isolation and safer execution.
+
+## 8) Egress Security Scan
+
+Source: [src/nodes.py](../src/nodes.py)
+
+Purpose:
+
+- Prevent accidental secret leakage in outputs.
+
+Design:
+
+- Post-execution scan checks output text for configured sensitive token values.
+- If leaked, output is replaced and terminal status is set to `security_blocked`.
+
+Tradeoff:
+
+- String matching is conservative and simple; false positives are possible but acceptable for safety.
+
+## 9) OpenAI Client Session Management
+
+Source: [src/utils/openai_utils.py](../src/utils/openai_utils.py)
+
+Purpose:
+
+- Keep async LLM client lifecycle bounded to each run.
+
+Design:
+
+- Context-managed session with contextvar storage.
+- Reset and close at end of lifecycle.
+
+Tradeoff:
+
+- Slight setup/teardown overhead per run, but avoids stale client/resource leaks across CLI turns.
+
+## 10) Hardcoded Context Registry
+
+Source: [src/models/hardcoded_contexts.py](../src/models/hardcoded_contexts.py)
+
+Purpose:
+
+- Provide deterministic retrieval context variants without requiring live vector retrieval.
+
+Design:
+
+- Loads context files from `data/context` plus in-code baselines.
+- Builds named combinations (for example schema report + Notion API summary).
+- Supports `dynamic` mode as a separate route.
+
+Tradeoff:
+
+- Strong determinism and simpler ops, but less adaptive than live retrieval.
+
+## 11) Error Analysis Automation
+
+Sources:
+
+- [src/error_analysis.py](../src/error_analysis.py)
+- [src/evaluation/shared.py](../src/evaluation/shared.py)
+
+Purpose:
+
+- Convert evaluation outputs into structured diagnostics and summaries.
+
+Design:
+
+- Can run automatically after evaluation orchestration.
+- Supports section toggles for code, execution, statements, and retrieval context.
+
+Tradeoff:
+
+- Additional post-processing time, but much faster iteration on failure patterns.
+
+## 12) State Fields Most Relevant to Users
+
+Source: [src/models/schema.py](../src/models/schema.py)
+
+Frequently surfaced fields:
+
+- `execution_output`
+- `message_to_user`
+- `feedback`
+- `verdict`
+- `affected_notion_ids`
+- `relevant_page_ids`

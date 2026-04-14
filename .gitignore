@@ -142,3 +142,6 @@ temp.md
 .env.test
 .env.past
 /orchestration/
+
+# Documentation
+/_build/

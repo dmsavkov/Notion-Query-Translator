@@ -37,7 +37,20 @@ The agent will:
 
 ---
 
-For a deeper explanation of the runtime mechanics, see [docs/implementation-notes.md](docs/implementation-notes.md).
+## 📚 Documentation Map
+
+- System architecture and major decisions: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Crucial component tradeoffs: [docs/COMPONENTS.md](docs/COMPONENTS.md)
+- Evaluation design and caveats: [docs/EVALUATION.md](docs/EVALUATION.md)
+
+### Default strategy (current)
+
+- Uses a deterministic hardcoded context by default.
+- Keeps planning disabled by default.
+- Uses self-correction as the primary retry behavior.
+- Executes in sandbox mode by default with egress controls.
+
+These defaults were chosen from iterative evaluation results and remain configurable.
 
 ## 🚀 Getting Started
 

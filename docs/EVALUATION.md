@@ -18,6 +18,23 @@ The orchestration layer is intentionally narrow: it raises on runtime execution 
 
 The important design decision is that the dataset is the canonical source of truth for prompts and reference outputs. The eval scripts should stay thin and should not re-encode task truth in code unless they are deliberately deriving it.
 
+## Dataset Inventory and Suites
+
+Evaluation inputs are organized under `evals/` and executed by dedicated harnesses under `evaluation/`.
+
+Primary suite buckets:
+
+- `evals/simple`: focused operations and atomic API behaviors.
+- `evals/complex`: multi-step workflows and composition behavior.
+- `evals/precheck`: guardrail extraction and relevance checks.
+- `evals/security`: safety-oriented prompt checks.
+- `evals/docs`: human-readable summaries and reference notes.
+
+Important convention:
+
+- Ground truth should be in `reference_outputs`.
+- Runtime inputs should carry only what the target actually needs to run.
+
 ## General Precheck Evaluation
 
 Entry point: [evaluation/test_general_precheck.py](../evaluation/test_general_precheck.py)
@@ -107,6 +124,31 @@ The evaluation stack follows a few recurring rules:
 - Keep title handling consistent. Normalization and extraction helpers should come from the shared Notion request layer rather than being reimplemented in each eval.
 - Keep runtime state separate from reference truth. If a metric is about inference, the reference should live in the dataset outputs, not in the input payload.
 
+## Provisioning and Environment in Eval Runs
+
+- Standard evaluation settings can provision sandbox infrastructure before runs.
+- Provisioning utilities live in [src/evaluation/sandbox.py](../src/evaluation/sandbox.py).
+- Runtime environment loading supports both `.env` and `.env.sandbox` so test IDs can be refreshed safely.
+- Some evals add a post-dataset-sync delay to absorb Notion index propagation lag.
+
+This keeps evaluations repeatable even when the backing Notion workspace state changes.
+
+## Automated Error Analysis
+
+- Shared orchestration can trigger post-run error analysis automatically.
+- Analysis implementation lives in [src/error_analysis.py](../src/error_analysis.py).
+- Outputs include structured failure slices for code, execution, statements, and optional retrieval context.
+
+This turns evaluation from pass/fail reporting into actionable debugging feedback.
+
+## Validation Policy
+
+This project treats validation as an architecture input, not a final QA step.
+
+- Major runtime decisions should be backed by measurable evaluation outcomes.
+- Tradeoffs that improved stability (for example static context default, planning disabled by default, self-correction default) remain configurable but are documented as non-default alternatives.
+- New behavior should be accompanied by focused unit tests and at least one targeted evaluation check when applicable.
+
 ## Practical Caveats
 
 - General precheck and title search are not measuring the same thing. One measures classification and resource inference; the other measures search and resolution quality.
@@ -117,4 +159,4 @@ The evaluation stack follows a few recurring rules:
 
 ## Related Notes
 
-If you want implementation details for the runtime app rather than the eval layer, see [Implementation Notes](implementation-notes.md).
+If you want runtime design details, see [ARCHITECTURE.md](ARCHITECTURE.md) and [COMPONENTS.md](COMPONENTS.md).
