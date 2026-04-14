@@ -61,24 +61,6 @@ def _get_telemetry_header_with_map(resource_map: dict) -> str:
 RESOURCE_MAP = {resource_map_json}
 """
 
-
-def _telemetry_footer(output_path: str) -> str:
-    """Generate the footer code that dumps collected IDs to a JSON file."""
-    return textwrap.dedent(f"""\
-
-        # --- telemetry footer ---
-        try:
-            __sys_os.makedirs(__sys_os.path.dirname("{output_path}") or ".", exist_ok=True)
-            with open("{output_path}", "w") as __f:
-                __sys_json.dump(
-                    {{"read": list(__system_read_ids), "mutated": list(__system_mutated_ids)}},
-                    __f,
-                )
-        except Exception:
-            pass
-    """)
-
-
 def wrap_code_with_telemetry(code: str, *, local: bool = False, resource_map: dict = None) -> str:
     """Wrap LLM-generated code with the telemetry prepend/append sandwich.
 
@@ -92,4 +74,4 @@ def wrap_code_with_telemetry(code: str, *, local: bool = False, resource_map: di
     """
     header = _get_telemetry_header_with_map(resource_map)
     output_path = LOCAL_AFFECTED_IDS_PATH if local else AFFECTED_IDS_PATH
-    return f"{header}\n{code}\n{_telemetry_footer(output_path)}"
+    return f"{header}\n{code}"

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import sys
 from contextlib import suppress
 from functools import partial
@@ -123,6 +124,28 @@ def _normalize_required_resources(raw_required: Any) -> List[str]:
         seen.add(value)
         normalized.append(value)
     return normalized
+
+
+_TELEMETRY_MUTATION_RE = re.compile(
+    r"\[telemetry\]\s+tracked\((?:PATCH|POST|DELETE)\):\s*(?P<page_id>(?:[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}))",
+    re.IGNORECASE,
+)
+
+
+def _extract_telemetry_mutated_ids(*values: Any) -> List[str]:
+    mutated_ids: List[str] = []
+    seen: set[str] = set()
+
+    for value in values:
+        text = str(value or "")
+        for match in _TELEMETRY_MUTATION_RE.finditer(text):
+            page_id = match.group("page_id").strip().lower()
+            if not page_id or page_id in seen:
+                continue
+            seen.add(page_id)
+            mutated_ids.append(page_id)
+
+    return mutated_ids
 
 
 @traceable(name="resolve_resources_node")
@@ -407,18 +430,19 @@ async def execute_local_node(state: Dict[str, Any], config: RunnableConfig) -> D
     pipeline_params = config.get("configurable", {}).get("pipeline_params")
     update_data = _execution_state_update(result, generated_code=raw_code)
 
-    # Extract affected IDs from the local temp file
-    affected_ids: List[str] = []
+    # Prefer telemetry text extraction; keep the file fallback for compatibility.
+    affected_ids: List[str] = _extract_telemetry_mutated_ids(result.stdout, result.stderr)
     with suppress(Exception):
-        ids_path = Path(LOCAL_AFFECTED_IDS_PATH)
-        if ids_path.exists():
-            raw_payload = json.loads(ids_path.read_text())
-            ids_path.unlink(missing_ok=True)
-            if isinstance(raw_payload, dict):
-                mutated = raw_payload.get("mutated", [])
-                affected_ids = [x for x in mutated if isinstance(x, str)]
-            else:
-                affected_ids = raw_payload if isinstance(raw_payload, list) else []
+        if not affected_ids:
+            ids_path = Path(LOCAL_AFFECTED_IDS_PATH)
+            if ids_path.exists():
+                raw_payload = json.loads(ids_path.read_text())
+                ids_path.unlink(missing_ok=True)
+                if isinstance(raw_payload, dict):
+                    mutated = raw_payload.get("mutated", [])
+                    affected_ids = [x for x in mutated if isinstance(x, str)]
+                else:
+                    affected_ids = raw_payload if isinstance(raw_payload, list) else []
     cache_ids = _apply_execution_envelope(
         result=result,
         update_data=update_data,
@@ -517,17 +541,18 @@ async def execute_sandbox_node(state: Dict[str, Any], config: RunnableConfig) ->
             metadata={"method": "sandbox", "thread_id": thread_id, "task_id": state["task_id"], "template": template},
         )
 
-    # Extract affected IDs from the sandbox filesystem
-    affected_ids: List[str] = []
+    # Prefer telemetry text extraction; keep the file fallback for compatibility.
+    affected_ids: List[str] = _extract_telemetry_mutated_ids(result.stdout, result.stderr)
     if sandbox is not None:
         with suppress(Exception):
-            file_bytes = await asyncio.to_thread(sandbox.files.read, AFFECTED_IDS_PATH)
-            raw_payload = json.loads(file_bytes)
-            if isinstance(raw_payload, dict):
-                mutated = raw_payload.get("mutated", [])
-                affected_ids = [x for x in mutated if isinstance(x, str)]
-            else:
-                affected_ids = raw_payload if isinstance(raw_payload, list) else []
+            if not affected_ids:
+                file_bytes = await asyncio.to_thread(sandbox.files.read, AFFECTED_IDS_PATH)
+                raw_payload = json.loads(file_bytes)
+                if isinstance(raw_payload, dict):
+                    mutated = raw_payload.get("mutated", [])
+                    affected_ids = [x for x in mutated if isinstance(x, str)]
+                else:
+                    affected_ids = raw_payload if isinstance(raw_payload, list) else []
 
     update_data = _execution_state_update(result, generated_code=raw_code)
     update_data["sandbox_id"] = sandbox_id

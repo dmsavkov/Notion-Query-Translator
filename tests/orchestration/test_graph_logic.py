@@ -612,6 +612,46 @@ async def test_execute_sandbox_node_sets_max_retries_for_timeout():
 
 @pytest.mark.orchestration
 @pytest.mark.asyncio
+async def test_execute_sandbox_node_extracts_telemetry_ids_from_output_without_file_read():
+    state = {
+        "task_id": "sandbox_telemetry_capture",
+        "generated_code": "print('x')",
+    }
+    telemetry_stderr = (
+        "[telemetry] tracked(GET): 11111111-1111-1111-1111-111111111111\n"
+        "[telemetry] tracked(PATCH): ccbcb17d-cc44-829a-b707-019899e91df7\n"
+    )
+    result_payload = ExecutionResult(
+        exit_code=0,
+        stdout="done",
+        stderr=telemetry_stderr,
+        passed=True,
+    )
+
+    sandbox = MagicMock()
+    sandbox.sandbox_id = "sbx-test-telemetry"
+    sandbox.files = MagicMock()
+    sandbox.files.read = MagicMock()
+
+    with patch("src.nodes.get_or_create_sandbox", return_value=sandbox) as mock_get_or_create, patch(
+        "src.nodes.run_code_in_sandbox",
+        return_value=result_payload,
+    ) as mock_run:
+        result = await execute_sandbox_node(
+            state,
+            _config(pipeline=PipelineParams(execution_method="sandbox")),
+        )
+
+    assert result["terminal_status"] == "success"
+    assert result["affected_notion_ids"] == ["ccbcb17d-cc44-829a-b707-019899e91df7"]
+    assert result["sandbox_id"] == "sbx-test-telemetry"
+    mock_get_or_create.assert_called_once()
+    mock_run.assert_called_once()
+    sandbox.files.read.assert_not_called()
+
+
+@pytest.mark.orchestration
+@pytest.mark.asyncio
 async def test_prepare_sandbox_node_warms_sandbox_only_for_sandbox_execution():
     state = {
         "task_id": "sandbox_warmup",
