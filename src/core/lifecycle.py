@@ -74,7 +74,11 @@ def build_pipeline() -> StateGraph:
         },
     )
     graph.add_edge("retrieve", "plan")
-    graph.add_conditional_edges("plan", route_after_plan)
+    graph.add_conditional_edges(
+        "plan",
+        route_after_plan,
+        ["codegen", "prepare_sandbox"],
+    )
     graph.add_edge("execute_local", "egress_security")
     graph.add_edge("execute_sandbox", "egress_security")
     graph.add_conditional_edges(
