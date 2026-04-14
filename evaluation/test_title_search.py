@@ -312,27 +312,29 @@ async def top3_recall_evaluator(
 	}
 
 
-async def mentioned_vs_resolved_count_evaluator(
+async def precheck_mention_count_evaluator(
 	*,
 	inputs: Dict[str, Any],
 	outputs: Dict[str, Any],
 	reference_outputs: Dict[str, Any],
 ) -> Dict[str, Any]:
 	expected_count = len(_normalize_expected_titles(reference_outputs.get("required_resources")))
-	mentioned_count = int(outputs.get("mentioned_pages_count") or 0)
-	predicted_count = int(outputs.get("resolved_pages_count") or 0)
+	predicted_mentions = _normalize_required_resources(outputs.get("inferred_required_resources"))
+	predicted_count = len(predicted_mentions)
+	predicted_resolved_count = int(outputs.get("resolved_pages_count") or 0)
 
 	score = 1.0 if expected_count == predicted_count else 0.0
 	task_id = str(outputs.get("task_id") or reference_outputs.get("task_id") or inputs.get("task_id") or "")
 	return {
-		"key": "mentioned_vs_resolved_count_match",
+		"key": "precheck_mention_count_match",
 		"score": score,
 		"comment": json.dumps(
 			{
 				"task_id": task_id,
-				"expected_mentioned_pages_count": expected_count,
-				"predicted_mentioned_pages_count": mentioned_count,
-				"predicted_resolved_pages_count": predicted_count,
+				"expected_referenced_pages_count": expected_count,
+				"predicted_mentioned_pages_count": predicted_count,
+				"predicted_mentioned_pages": predicted_mentions,
+				"predicted_resolved_pages_count": predicted_resolved_count,
 			}
 		),
 	}
@@ -347,7 +349,7 @@ async def run_title_search_evaluation(settings: Optional[StandardEvaluationSetti
 		evaluators=[
 			top1_precision_evaluator,
 			top3_recall_evaluator,
-			mentioned_vs_resolved_count_evaluator,
+			precheck_mention_count_evaluator,
 		],
 		human_config=None,
 	)

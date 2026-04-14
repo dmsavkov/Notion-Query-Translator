@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from evaluation.test_title_search import make_title_search_target
+from evaluation.test_title_search import make_title_search_target, precheck_mention_count_evaluator
 
 
 @pytest.mark.unit
@@ -103,3 +103,25 @@ async def test_title_search_target_passes_precheck_resources_into_resolution_sta
     assert captured_state["meta"]["reasoning"] == "precheck found one page"
     assert output["inferred_required_resources"] == ["AI Research"]
     assert output["resource_map"] == {"AI Research": "id-ai"}
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_precheck_mention_count_evaluator_uses_precheck_mentions_not_resolution():
+    result = await precheck_mention_count_evaluator(
+        inputs={"task_id": "ts_metric"},
+        outputs={
+            "task_id": "ts_metric",
+            "inferred_required_resources": ["Alpha", "Beta", "Gamma"],
+            "mentioned_pages_count": 3,
+            "resolved_pages_count": 1,
+        },
+        reference_outputs={
+            "task_id": "ts_metric",
+            "required_resources": ["Alpha", "Beta", "Gamma"],
+        },
+    )
+
+    assert result["key"] == "precheck_mention_count_match"
+    assert result["score"] == 1.0
+    assert '"predicted_resolved_pages_count": 1' in result["comment"]

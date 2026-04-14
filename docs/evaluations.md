@@ -58,7 +58,7 @@ Metrics:
 
 - `top1_precision`: for each expected title from `reference_outputs.required_resources`, the metric checks whether any query returned that title as the first search result after title normalization.
 - `top3_recall`: the same check, but across the first three search results.
-- `mentioned_vs_resolved_count_match`: compares the number of expected titles with the number of resolved page IDs.
+- `precheck_mention_count_match`: compares the number of expected titles with the number of pages mentioned by the general precheck. The resolved page count is still included in the comment for debugging, but it does not affect the score.
 
 Important caveats:
 
